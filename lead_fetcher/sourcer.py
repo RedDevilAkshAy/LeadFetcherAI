@@ -213,42 +213,150 @@ class LeadFinder:
             return None
 
     # -------------------------
-    # SANITIZE OWNER NAME
+    # SANITIZE & EXTRACT OWNER NAME
     # -------------------------
-    def sanitize_owner_name(self, raw_text: str) -> str:
+    def clean_owner_name(self, raw_text: str, business_name: str = "") -> str:
+        """Extract a clean, single full name from Gemini output or existing database text
+
+        without making any additional API calls.
+        """
         if not raw_text:
             return "Unknown"
 
-        text = raw_text.strip()
-        text = text.strip('*_`"\'')
+        import re
 
-        # Remove prefix keywords if returned
-        for prefix in ["owner:", "founder:", "ceo:", "in charge:", "name:"]:
-            if text.lower().startswith(prefix):
-                text = text[len(prefix):].strip()
-
-        # Remove trailing period if present
-        if (
-            text.endswith(".")
-            and not text.endswith("Dr.")
-            and not text.endswith("Mr.")
-            and not text.endswith("Ms.")
-        ):
-            text = text[:-1].strip()
-
-        if "unknown" in text.lower():
+        text = raw_text.strip().strip('*_`"\'')
+        if not text or "unknown" in text.lower():
             return "Unknown"
 
-        # If model returned multiple lines, take the first non-empty line
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if lines:
-            text = lines[0]
+        # Remove citations like [1], [2], etc.
+        text = re.sub(r"\[\d+\]", "", text).strip()
 
-        # Ensure fits within String(50) database constraint
-        if len(text) > 50:
-            text = text[:50].strip()
+        # Remove prefix keywords (e.g. "Owner: John Doe", "Founder: Jane Smith")
+        text = re.sub(
+            r"^(?:owner|founder|ceo|director|in charge|name)\s*:\s*",
+            "",
+            text,
+            flags=re.I,
+        ).strip()
 
-        return text if text else "Unknown"
+        # Check for negative / non-informative statements
+        negatives = [
+            "not found",
+            "could not find",
+            "not disclose",
+            "not available",
+            "no information",
+            "cannot find",
+            "unable to find",
+            "unclear",
+            "n/a",
+            "none",
+        ]
+        if any(neg in text.lower() for neg in negatives):
+            return "Unknown"
+
+        # Pattern 1: '<Business> was/is (co-)?founded / owned / created / established / started by <Name>...'
+        # or 'Founded by <Name>...'
+        m1 = re.search(
+            r"\b(?:(?:was|is)\s+)?(?:co-)?(?:founded|owned|created|established|started|operated|run|led|opened)(?:\s+and\s+(?:operated|run|managed|owned))?\s+by\s+(.+)",
+            text,
+            flags=re.I,
+        )
+        if m1:
+            after_by = m1.group(1).strip()
+            after_by = re.split(
+                r"\s+\b(?:in\s+\d{4}|in\s+[A-Z][a-z]+|who\b|which\b|and\s+(?:serves|is|acts|oversees)|alongside|with\b|as\s+well|to\b)\b|[,;\n](?!\s*(?:MD|DO|DNP|APRN|RN|PA-C|PhD|MBA|DDS|DMD|Jr|Sr))",
+                after_by,
+                flags=re.I,
+            )[0].strip()
+            after_by = re.sub(
+                r"(?<!\bDr)(?<!\bMr)(?<!\bMs)[,\.\s]+$", "", after_by
+            ).strip()
+            if after_by and len(after_by.split()) <= 6:
+                return after_by[:50]
+
+        # Pattern 2: '(The )?(owner|founder|ceo|director) of <Business> is <Name>...'
+        m2 = re.search(
+            r"\b(?:the\s+)?(?:owner|founder|ceo|director|person in charge|medical director)(?:\s+(?:and|&)\s+(?:founder|owner|ceo|director))?(?:\s+of\s+[^,]+)?\s+(?:is|was)\s+(.+)",
+            text,
+            flags=re.I,
+        )
+        if m2:
+            after_is = m2.group(1).strip()
+            after_is = re.split(
+                r"\s+\b(?:who\b|which\b|and\s+(?:serves|is|acts)|in\s+\d{4})\b|[,;\n](?!\s*(?:MD|DO|DNP|APRN|RN|PA-C|PhD|MBA|DDS|DMD|Jr|Sr))",
+                after_is,
+                flags=re.I,
+            )[0].strip()
+            after_is = re.sub(
+                r"(?<!\bDr)(?<!\bMr)(?<!\bMs)[,\.\s]+$", "", after_is
+            ).strip()
+            if after_is and len(after_is.split()) <= 6:
+                return after_is[:50]
+
+        # Pattern 3: '<Name> is/serves as the (founder|owner|ceo)...' or '<Name> (founded|owns|operates)...'
+        m3 = re.match(
+            r"^(.+?)\s+(?:(?:is|serves as|acts as)\s+(?:the\s+|an?\s+)?(?:co-)?(?:founder|owner|ceo|director|president|creator|medical director|proprietor)|(?:founded|co-founded|owns|operates|runs|started))\b",
+            text,
+            flags=re.I,
+        )
+        if m3:
+            before_verb = m3.group(1).strip()
+            before_verb = re.sub(
+                r"(?<!\bDr)(?<!\bMr)(?<!\bMs)[,\.\s]+$", "", before_verb
+            ).strip()
+            if before_verb and len(before_verb.split()) <= 6:
+                return before_verb[:50]
+
+        # Pattern 4: '<Name>, (the )?(founder|owner|ceo)...'
+        m4 = re.match(
+            r"^(.+?),\s*(?:the\s+|an?\s+)?(?:co-)?(?:founder|owner|ceo|director|president|medical director)\b",
+            text,
+            flags=re.I,
+        )
+        if m4:
+            before_title = m4.group(1).strip()
+            before_title = re.sub(
+                r"(?<!\bDr)(?<!\bMr)(?<!\bMs)[,\.\s]+$", "", before_title
+            ).strip()
+            if before_title and len(before_title.split()) <= 6:
+                return before_title[:50]
+
+        # Pattern 5: Already clean name, e.g. "Ava Franzoni", "Justin Jeter, MD"
+        cleaned = re.sub(r"(?<!\bDr)(?<!\bMr)(?<!\bMs)\.+$", "", text).strip()
+        words = cleaned.split()
+        if len(words) <= 6 and not any(
+            w.lower()
+            in {
+                "is",
+                "was",
+                "are",
+                "were",
+                "the",
+                "of",
+                "for",
+                "founded",
+                "owns",
+                "operates",
+            }
+            for w in words
+        ):
+            return cleaned[:50].strip()
+
+        # Pattern 6: Fallback - take first sentence/clause
+        first_clause = re.split(
+            r"[,;\n](?!\s*(?:MD|DO|DNP|APRN|RN|PA-C|PhD|MBA|DDS|DMD))|(?<!\bDr)(?<!\bMr)(?<!\bMs)\.",
+            text,
+        )[0].strip()
+        if 1 <= len(first_clause.split()) <= 5:
+            return first_clause[:50].strip()
+
+        return "Unknown"
+
+    def sanitize_owner_name(self, raw_text: str) -> str:
+        """Alias for clean_owner_name for backward compatibility."""
+        return self.clean_owner_name(raw_text)
 
     # -------------------------
     # OWNER EXTRACTION WITH GEMINI
@@ -261,11 +369,16 @@ class LeadFinder:
             return "Unknown"
 
         prompt = f"""Your task for this session: I'm going to paste the business name of {self.niche or "the business"} in {location or self.locations}.
-I want you to fetch me their owner/ founder or whoever is in charge of the business full name.
-The format I'm going to give will be like: Business name - Website URL.
-If you find full name just return me the single person Full Name, if you don't get the full name, search again and return me just "Unknown." answer.
+Fetch the full name of the owner, founder, or person in charge.
+The format provided: {business_name} - {website_url}
 
-Here we go, the first one: {business_name} - {website_url}"""
+CRITICAL RULES:
+1. Return ONLY the person's single Full Name (e.g. "Jane Doe" or "Dr. John Smith, MD").
+2. Do NOT write full sentences (do NOT say "Jane Doe is the founder of..." or "Founded by...").
+3. Do NOT include explanations, job titles, or prefixes like "Owner:".
+4. If you cannot identify the person with confidence, return exactly "Unknown".
+
+Here we go: {business_name} - {website_url}"""
 
         config = types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -291,7 +404,7 @@ Here we go, the first one: {business_name} - {website_url}"""
                 )
 
             raw_text = response.text if response and response.text else "Unknown"
-            return self.sanitize_owner_name(raw_text)
+            return self.clean_owner_name(raw_text, business_name)
 
         except Exception as e:
             err_msg = str(e)
@@ -324,7 +437,7 @@ Here we go, the first one: {business_name} - {website_url}"""
                         )
 
                     raw_text = response.text if response and response.text else "Unknown"
-                    return self.sanitize_owner_name(raw_text)
+                    return self.clean_owner_name(raw_text, business_name)
 
                 except Exception as fb_err:
                     logger.error(f"Fallback model also failed: {fb_err}")
@@ -336,7 +449,12 @@ Here we go, the first one: {business_name} - {website_url}"""
     # DATABASE PERSISTENCE
     # -------------------------
     def save_lead_to_db(
-        self, business: dict, owner_name: str, niche: str, location: str, db: Session
+        self,
+        business: dict,
+        owner_name: str,
+        niche: str,
+        db: Session,
+        location: str = "",
     ) -> Optional[Lead]:
         try:
             phone = (
@@ -361,7 +479,6 @@ Here we go, the first one: {business_name} - {website_url}"""
                 email=None,  # None avoids unique constraint collision
                 number=phone if phone else None,
                 characteristic=char_val if char_val else None,
-                location=location
             )
 
             db.add(lead)

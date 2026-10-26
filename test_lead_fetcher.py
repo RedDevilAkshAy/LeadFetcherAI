@@ -63,6 +63,40 @@ class TestLeadFinder(unittest.TestCase):
         )
         self.assertEqual(self.finder.sanitize_owner_name(""), "Unknown")
 
+        # Database screenshot test cases:
+        self.assertEqual(
+            self.finder.clean_owner_name(
+                "Julia Pernas is the founder of Brickell Cosmetic C"
+            ),
+            "Julia Pernas",
+        )
+        self.assertEqual(
+            self.finder.clean_owner_name(
+                "Lior Masaphor is the founder of No Filter Medical"
+            ),
+            "Lior Masaphor",
+        )
+        self.assertEqual(
+            self.finder.clean_owner_name(
+                "VIIV WELLNESS HAUS was founded by Lunmey in 2020"
+            ),
+            "Lunmey",
+        )
+        self.assertEqual(
+            self.finder.clean_owner_name(
+                "Paul Charette is the founder and CEO of Charett..."
+            ),
+            "Paul Charette",
+        )
+        self.assertEqual(
+            self.finder.clean_owner_name("Dr. Sabrina Gonzalez, DNP, APRN"),
+            "Dr. Sabrina Gonzalez, DNP, APRN",
+        )
+        self.assertEqual(
+            self.finder.clean_owner_name("Justin Jeter, MD"),
+            "Justin Jeter, MD",
+        )
+
         # Column max length 50 chars
         long_name = "A" * 80
         sanitized = self.finder.sanitize_owner_name(long_name)

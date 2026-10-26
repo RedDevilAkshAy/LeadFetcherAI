@@ -43,6 +43,43 @@ async def find_new_leads(data: FindNew, db: Session = Depends(get_db)):
     }
 
 
+@app.post("/clean_leads")
+def clean_existing_leads(db: Session = Depends(get_db)):
+    """Clean all existing owner_name values in the database from full sentences to single full names
+
+    without recalling the Gemini API.
+    """
+    finder = LeadFinder()
+    leads = db.query(Lead).all()
+    updated_records = []
+
+    for lead in leads:
+        old_name = lead.owner_name
+        if not old_name or old_name == "Unknown":
+            continue
+
+        cleaned = finder.clean_owner_name(old_name, lead.business_name or "")
+        if cleaned != old_name:
+            lead.owner_name = cleaned
+            updated_records.append(
+                {
+                    "id": lead.id,
+                    "business_name": lead.business_name,
+                    "before": old_name,
+                    "after": cleaned,
+                }
+            )
+
+    if updated_records:
+        db.commit()
+
+    return {
+        "message": f"Successfully cleaned {len(updated_records)} leads.",
+        "updated_count": len(updated_records),
+        "changes": updated_records,
+    }
+
+
 @app.get("/get_leads", response_model=List[LeadResponse])
 def get_leads(db: Session = Depends(get_db)):
     """Fetch all leads saved in the database."""
