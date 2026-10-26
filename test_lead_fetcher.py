@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
-# Mock third-party libraries not present in global Python 3.8 environment
+# Mock third-party libraries only if not actually installed
 for mod in [
     "httpx",
     "google",
@@ -12,9 +12,14 @@ for mod in [
     "sqlalchemy",
     "sqlalchemy.orm",
     "sqlalchemy.exc",
+    "pgvector",
+    "pgvector.sqlalchemy",
 ]:
-    if mod not in sys.modules:
-        sys.modules[mod] = MagicMock()
+    try:
+        __import__(mod)
+    except ImportError:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
 
 import unittest
 from lead_fetcher.sourcer import LeadFinder

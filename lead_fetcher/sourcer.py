@@ -20,6 +20,7 @@ try:
         GOOGLE_URL,
     )
     from lead_fetcher.models import Lead
+    from lead_fetcher.pipeline import process_lead_pipeline
 except ImportError:
     from config import (
         GEMINI_API_KEY,
@@ -28,6 +29,10 @@ except ImportError:
         GOOGLE_URL,
     )
     from models import Lead
+    try:
+        from pipeline import process_lead_pipeline
+    except ImportError:
+        process_lead_pipeline = None
 
 try:
     from database import SessionLocal, get_db
@@ -479,6 +484,9 @@ Here we go: {business_name} - {website_url}"""
                 email=None,  # None avoids unique constraint collision
                 number=phone if phone else None,
                 characteristic=char_val if char_val else None,
+                location=str(location).strip()[:100] if location else None,
+                rating=business.get("rating"),
+                review_count=business.get("userRatingCount"),
             )
 
             db.add(lead)
@@ -585,6 +593,14 @@ Here we go: {business_name} - {website_url}"""
                             db=db,
                             location=location
                         )
+
+                        # Run end-to-end intelligence pipeline: crawl -> pgvector -> agent -> score -> pitch
+                        if lead_record and lead_record.id and process_lead_pipeline:
+                            try:
+                                logger.info(f"Running intelligence pipeline for lead {lead_record.id}...")
+                                await process_lead_pipeline(lead_id=lead_record.id, db=db)
+                            except Exception as pe:
+                                logger.error(f"Error executing pipeline for lead {lead_record.id}: {pe}")
 
                         lead_data = {
                             "id": lead_record.id if lead_record else None,

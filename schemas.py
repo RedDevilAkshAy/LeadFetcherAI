@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class FindNew(BaseModel):
@@ -21,6 +21,9 @@ class LeadSchema(BaseModel):
     email: Optional[EmailStr] = None
     number: Optional[str] = None
     characteristic: Optional[str] = None
+    location: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
 
 
 class LeadResponse(BaseModel):
@@ -32,14 +35,49 @@ class LeadResponse(BaseModel):
     email: Optional[str] = None
     number: Optional[str] = None
     characteristic: Optional[str] = None
+    location: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
 
 
-class LeadSummary(BaseModel):
+class AnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    id: Optional[int] = None
-    name: Optional[str] = None
-    url: Optional[str] = None
-    city: Optional[str] = None
+    services_found: List[str] = []
+    has_online_booking: bool = False
+    has_whatsapp: bool = False
+    has_contact_form: bool = False
+    pricing_found: bool = False
+    social_links: Dict[str, Optional[str]] = {}
+    website_summary: Optional[str] = None
+
+
+class ScoreResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    score: Optional[float] = None
+    priority: Optional[str] = None
+    opportunities: List[str] = []
+    recommended_actions: Optional[str] = None
+
+
+class PitchResponse(BaseModel):
+    whatsapp: Optional[str] = None
+    email: Optional[str] = None
+
+
+class FullLeadReportResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    business_name: Optional[str] = None
+    location: Optional[str] = None
+    business_website: Optional[str] = None
     owner_name: Optional[str] = None
-    business_type: Optional[str] = None
     number: Optional[str] = None
+    characteristic: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+
+    analysis: Optional[AnalysisResponse] = None
+    score: Optional[ScoreResponse] = None
+    pitch: Optional[PitchResponse] = None
+
+    formatted_card: Optional[str] = None
