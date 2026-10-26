@@ -1,0 +1,6 @@
+Alembic:
+pip install alembic email-validator
+alembic init alembic
+
+alembic revision --autogenerate -m "create leads table"
+alembic upgrade head
