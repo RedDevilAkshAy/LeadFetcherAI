@@ -1,21 +1,60 @@
 from __future__ import annotations
 
+import json
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 
 try:
-    from pgvector.sqlalchemy import Vector
+    from database import Base, is_vector_available
 except ImportError:
-    # Fallback for environments or tests where pgvector is not yet installed
-    from sqlalchemy.types import TypeDecorator
-    class Vector(TypeDecorator):
-        impl = Text
-        cache_ok = True
+    from ..database import Base, is_vector_available
 
-try:
-    from database import Base
-except ImportError:
-    from ..database import Base
+
+class VectorType(TypeDecorator):
+    """Dynamically uses native pgvector VECTOR(dim) if available in PostgreSQL,
+
+    otherwise falls back to Text storing a JSON serialized float array.
+    This guarantees table creation works everywhere without requiring native C compilers on Windows.
+    """
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, dim: int = 768, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            try:
+                if is_vector_available():
+                    from pgvector.sqlalchemy import Vector
+                    return dialect.type_descriptor(Vector(self.dim))
+            except Exception:
+                pass
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        try:
+            if is_vector_available():
+                return value
+        except Exception:
+            pass
+        if isinstance(value, (list, tuple)):
+            return json.dumps(value)
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+        return value
 
 
 class Lead(Base):
@@ -57,14 +96,14 @@ class BusinessAnalysis(Base):
 
 
 class BusinessEmbedding(Base):
-    """pgvector embeddings of business crawled content, services, and profile."""
+    """Embeddings of business crawled content, services, and profile."""
     __tablename__ = "business_embeddings"
 
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     content_type = Column(String(50), nullable=False)     # "crawl", "services", "summary", etc.
     content_text = Column(Text, nullable=False)
-    embedding = Column(Vector(768), nullable=True)        # 768-dim vector from Gemini embedding
+    embedding = Column(VectorType(768), nullable=True)    # Native Vector or JSON-Text fallback
     created_at = Column(DateTime, server_default=func.now())
 
     lead = relationship("Lead", back_populates="embeddings")
@@ -77,7 +116,7 @@ class LeadScore(Base):
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), unique=True, nullable=False)
     score = Column(Float, nullable=True)                  # 0 to 100
-    priority = Column(String(10), nullable=True)           # "high", "medium", "low"
+    priority = Column(String(10), nullable=True)          # "High", "Medium", "Low"
     opportunities = Column(Text, nullable=True)           # JSON list of detected growth opportunities
     recommended_actions = Column(Text, nullable=True)     # Summary recommendation
     pitch_whatsapp = Column(Text, nullable=True)
