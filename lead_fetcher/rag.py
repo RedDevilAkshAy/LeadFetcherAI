@@ -53,7 +53,7 @@ async def embed_text(text: str) -> Optional[List[float]]:
     if not client or not text.strip():
         return None
 
-    model = GEMINI_EMBEDDING_MODEL or "text-embedding-004"
+    model = GEMINI_EMBEDDING_MODEL or "gemini-embedding-001"
 
     try:
         # Use native async if supported by google-genai
