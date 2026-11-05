@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any
 from urllib.parse import urljoin, urlparse
+import unicodedata
+
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -202,60 +204,113 @@ def _discover_nav_links(soup: BeautifulSoup, base_url: str) -> list[str]:
 
 
 def _detect_services(soup: BeautifulSoup, text: str) -> list[str]:
-    """Heuristically extract a list of service/offering names.
+    """Extract candidate offerings from explicitly service-related sections.
 
-    Strategy:
-    1. Look for lists (<ul>/<ol>) inside sections whose heading contains
-       keywords like "services", "treatments", "what we offer", etc.
-    2. Collect items from those lists.
-    3. Fall back to heading tags (h2/h3) that look service-like.
+    `text` is retained for compatibility with existing callers.
+    No whole-page heading fallback is used.
     """
     services: list[str] = []
     seen: set[str] = set()
 
-    service_heading_re = re.compile(
-        r"service|treatment|what we (?:do|offer)|our (?:services|offerings|specialties|programs|classes|menu)"
-        r"|we (?:offer|provide|specialize)",
+    heading_re = re.compile(r"^h[1-6]$")
+
+    section_title_re = re.compile(
+        r"^(?:(?:our|the)\s+)?"
+        r"(?:services|treatments|offerings|specialties|"
+        r"programs|classes|packages)"
+        r"(?:\s+(?:we\s+(?:offer|provide)|offered))?$"
+        r"|^what\s+we\s+(?:do|offer)$"
+        r"|^we\s+(?:offer|provide)$",
         re.IGNORECASE,
     )
 
-    # --- Strategy 1: lists under service-related headings ---------------
-    for heading in soup.find_all(re.compile(r"^h[1-4]$")):
-        heading_text = heading.get_text(strip=True)
-        if not service_heading_re.search(heading_text):
+    noise_re = re.compile(
+        r"\b(?:"
+        r"who we are|about us|our history|our mission|our story|"
+        r"meet (?:our|the)|founder|testimonials?|"
+        r"what our customers|contact|call us|email|"
+        r"address|opening hours|business hours|"
+        r"follow us|privacy|copyright|terms"
+        r")\b",
+        re.IGNORECASE,
+    )
+
+    generic_labels = {
+        "home", "about", "blog", "faq", "portfolio", "gallery",
+        "learn more", "read more", "view more", "view all",
+        "book now", "get in touch", "submit", "menu",
+        "next", "previous",
+    }
+
+    def clean(value: str) -> str:
+        value = unicodedata.normalize("NFKC", value)
+        value = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", value)
+        value = re.sub(r"\s+", " ", value)
+        return value.strip(" \t\r\n-–—:|•")
+
+    def excluded_region(tag: Tag) -> bool:
+        return any(
+            node.name in {"nav", "header", "footer", "aside"}
+            or node.get("role") == "navigation"
+            for node in (tag, *tag.parents)
+            if isinstance(node, Tag)
+        )
+
+    def add_candidate(tag: Tag) -> None:
+        if excluded_region(tag):
+            return
+
+        value = clean(tag.get_text(" ", strip=True))
+        key = value.casefold()
+
+        if not 4 <= len(value) <= 100:
+            return
+        if len(value.split()) > 12:
+            return
+        if key in seen or key in generic_labels:
+            return
+        if section_title_re.fullmatch(value) or noise_re.search(value):
+            return
+        if "@" in value or re.search(r"https?://|www\.", value, re.I):
+            return
+        if not any(char.isalpha() for char in value):
+            return
+        if sum(char.isdigit() for char in value) >= 7:
+            return
+
+        seen.add(key)
+        services.append(value)
+
+    for heading in soup.find_all(heading_re):
+        if excluded_region(heading):
             continue
-        # Walk siblings until next heading to find <ul>/<ol>.
-        sibling: Tag | None = heading.find_next_sibling()
-        while sibling and sibling.name not in {"h1", "h2", "h3", "h4"}:
-            if sibling.name in ("ul", "ol"):
-                for li in sibling.find_all("li"):
-                    item = li.get_text(strip=True)
-                    if 3 < len(item) < 120 and item.lower() not in seen:
-                        seen.add(item.lower())
-                        services.append(item)
-            sibling = sibling.find_next_sibling()  # type: ignore[assignment]
 
-    # --- Strategy 2: headings themselves --------------------------------
-    if not services:
-        for heading in soup.find_all(re.compile(r"^h[2-4]$")):
-            h_text = heading.get_text(strip=True)
-            if 3 < len(h_text) < 80:
-                lower = h_text.lower()
-                # Skip generic headings.
-                if lower in seen or any(
-                    skip in lower
-                    for skip in (
-                        "about", "contact", "home", "welcome", "blog",
-                        "testimonial", "review", "faq", "location", "hour",
-                        "follow", "connect", "copyright", "privacy", "terms",
-                    )
-                ):
-                    continue
-                seen.add(lower)
-                services.append(h_text)
+        title = clean(heading.get_text(" ", strip=True))
+        if not section_title_re.fullmatch(title):
+            continue
 
-    # Cap the list to avoid noise.
-    return services[:25]
+        section_rank = int(heading.name[1])
+
+        # Traverse in document order, including nested wrappers.
+        # Stop at the next heading of equal or higher rank.
+        for node in heading.next_elements:
+            if not isinstance(node, Tag):
+                continue
+
+            if heading_re.fullmatch(node.name):
+                if int(node.name[1]) <= section_rank:
+                    break
+                add_candidate(node)
+
+            elif node.name == "li":
+                # Avoid treating a whole nested list as one offering.
+                if node.find(["ul", "ol"]) is None:
+                    add_candidate(node)
+
+            if len(services) >= 25:
+                return services
+
+    return services
 
 
 def _detect_online_booking(soup: BeautifulSoup, text: str) -> bool:

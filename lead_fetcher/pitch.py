@@ -5,26 +5,63 @@ import json
 import logging
 import re
 from typing import Any, Dict
+from openai import OpenAI
 
 try:
-    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL
+    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODEL
 except ImportError:
-    from config import GEMINI_API_KEY, GEMINI_MODEL
+    from config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODEL
 
 logger = logging.getLogger("lead_fetcher.pitch")
 
-_pitch_genai_client = None
+_agent_nim_client = None
 
+def get_agent_client():
+    global _agent_nim_client
 
-def get_pitch_client():
-    global _pitch_genai_client
-    if _pitch_genai_client is None and GEMINI_API_KEY:
+    if _agent_nim_client is None and NVIDIA_API_KEY:
         try:
-            from google import genai
-            _pitch_genai_client = genai.Client(api_key=GEMINI_API_KEY)
-        except Exception as e:
-            logger.warning(f"Failed to initialize Gemini client for pitch: {e}")
-    return _pitch_genai_client
+            _agent_nim_client = OpenAI(
+                base_url=NVIDIA_BASE_URL,
+                api_key=NVIDIA_API_KEY,
+            )
+        except Exception:
+            logger.exception("Failed to initialize NVIDIA NIM client")
+
+    return _agent_nim_client
+
+
+async def call_agent(prompt: str) -> str:
+    """Call an NVIDIA NIM chat model with the supplied prompt."""
+    client = get_agent_client()
+
+    if client is None:
+        logger.warning("NVIDIA NIM client is unavailable")
+        return ""
+
+    if not NVIDIA_MODEL:
+        logger.warning("NVIDIA_MODEL is not configured")
+        return ""
+
+    try:
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model=NVIDIA_MODEL,
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=8192,
+        )
+
+        if not response.choices:
+            return ""
+
+        return response.choices[0].message.content or ""
+
+    except Exception:
+        logger.exception("NVIDIA NIM call failed in agent")
+        return ""
 
 
 def _get_salutation(owner_name: str, niche: str) -> str:
@@ -98,7 +135,7 @@ async def generate_pitch(
     score_result: Dict[str, Any],
 ) -> Dict[str, str]:
     """Generates personalized WhatsApp and Email pitch messages using Gemini."""
-    client = get_pitch_client()
+    client = get_agent_client()
     if not client:
         return _fallback_pitches(business_info, analysis_data, agent_result)
 
@@ -127,6 +164,7 @@ Website Features:
 - WhatsApp Chat: {analysis_data.get('has_whatsapp', False)}
 - Pricing: {analysis_data.get('pricing_found', False)}
 Identified Gaps: {gaps}
+Identified Opportunities: {opportunities}
 Opportunity / Recommended Pitch: {rec_actions}
 Priority: {score_result.get('priority', 'High')}
 
@@ -146,30 +184,19 @@ Respond ONLY with valid JSON in this exact structure:
   "email": "..."
 }}"""
 
-    model = GEMINI_MODEL or "gemini-2.5-flash"
+    response = await call_agent(prompt)
     try:
-        if hasattr(client, "aio") and hasattr(client.aio, "models"):
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-            )
-        else:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model,
-                contents=prompt,
-            )
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        # fallback: extract JSON if the model adds text or Markdown fences
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
+        raw = fenced.group(1) if fenced else re.search(r"\{.*\}", response, re.DOTALL).group(0)
+        data = json.loads(raw)
 
-        text = response.text if response and response.text else ""
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-            if "whatsapp" in data and "email" in data:
-                return {
-                    "whatsapp": data["whatsapp"].strip(),
-                    "email": data["email"].strip(),
-                }
-    except Exception as e:
-        logger.warning(f"Gemini pitch generation failed: {e}")
+    whatsapp = data.get("whatsapp", "").strip()
+    email = data.get("email", "").strip()
+
+    if whatsapp and email:
+        return {"whatsapp": whatsapp, "email": email}
 
     return _fallback_pitches(business_info, analysis_data, agent_result)

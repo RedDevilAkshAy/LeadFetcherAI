@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, START, END
 from openai import OpenAI
 
 try:
-    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL
+    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
     from lead_fetcher.rag import retrieve_similar
 except ImportError:
     from config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
