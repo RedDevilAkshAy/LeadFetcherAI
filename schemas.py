@@ -26,18 +26,12 @@ class LeadSchema(BaseModel):
     review_count: Optional[int] = None
 
 
+
 class LeadResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    business_name: Optional[str] = None
-    business_website: Optional[str] = None
-    owner_name: Optional[str] = None
-    email: Optional[str] = None
-    number: Optional[str] = None
-    characteristic: Optional[str] = None
-    location: Optional[str] = None
-    rating: Optional[float] = None
-    review_count: Optional[int] = None
+    items: List[FullLeadReportResponse]
+    total: int
+    page: int
+        
 
 
 class AnalysisResponse(BaseModel):

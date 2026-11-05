@@ -5,6 +5,9 @@ import logging
 from pprint import pprint
 from typing import List, Optional, Union
 from urllib.parse import urlparse
+from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from contextlib import contextmanager
+
 
 import httpx
 from google import genai
@@ -12,27 +15,15 @@ from google.genai import types
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-try:
-    from lead_fetcher.config import (
-        GEMINI_API_KEY,
-        GEMINI_MODEL,
-        GOOGLE_API_KEY,
-        GOOGLE_URL,
-    )
-    from lead_fetcher.models import Lead
-    from lead_fetcher.pipeline import process_lead_pipeline
-except ImportError:
-    from config import (
-        GEMINI_API_KEY,
-        GEMINI_MODEL,
-        GOOGLE_API_KEY,
-        GOOGLE_URL,
-    )
-    from models import Lead
-    try:
-        from pipeline import process_lead_pipeline
-    except ImportError:
-        process_lead_pipeline = None
+from lead_fetcher.config import (
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GOOGLE_API_KEY,
+    GOOGLE_URL,
+)
+from lead_fetcher.models import Lead
+from lead_fetcher.pipeline import process_lead_pipeline
+
 
 try:
     from database import SessionLocal, get_db
@@ -650,16 +641,27 @@ Here we go: {business_name} - {website_url}"""
         )
 
 
-if __name__ == "__main__":
-    locations_list = [
-        "Dubai, UAE",
-        "Abu Dhabi, UAE",
-        "Sharjah, UAE",
-    ]
-    finder = LeadFinder(
-        niche="Aesthetic clinics",
-        locations=locations_list,
-    )
-    results = finder.run()
-    print(f"Finished scraping. Total leads saved: {len(results)}")
-    pprint(results)
+class SourceData:
+    def __init__(self):
+        pass
+
+    @contextmanager
+    def get_db(self):
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def dashboard_details(self):
+        # leads = db.query(Lead).all()
+        with self.get_db() as db:
+            business_types = db.query(Lead).with_entities(Lead, Lead.characteristic).all()
+            return {"leads": business_types[0],
+                    "business_types": business_types[1]}
+
+
+    def get_leads(self):
+        ""
+
+

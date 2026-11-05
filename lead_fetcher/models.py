@@ -103,7 +103,7 @@ class BusinessEmbedding(Base):
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     content_type = Column(String(50), nullable=False)     # "crawl", "services", "summary", etc.
     content_text = Column(Text, nullable=False)
-    embedding = Column(VectorType(768), nullable=True)    # Native Vector or JSON-Text fallback
+    embedding = Column(VectorType(2048), nullable=True)    # Native Vector or JSON-Text fallback
     created_at = Column(DateTime, server_default=func.now())
 
     lead = relationship("Lead", back_populates="embeddings")

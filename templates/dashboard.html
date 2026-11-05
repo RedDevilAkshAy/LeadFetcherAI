@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadFetcher · Saved leads</title>
+<style>
+:root{--ink:#19243e;--muted:#73809a;--primary:#6954e8;--line:#e9edf5}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:60px 22px;color:var(--ink);font-family:Inter,"Segoe UI",Arial,sans-serif;background:radial-gradient(ellipse at top left,#e4dcff,transparent 55%),radial-gradient(ellipse at bottom right,#d0f6ed,transparent 55%),#f5f7ff}.dashboard{max-width:1160px;margin:auto}header{text-align:center;margin-bottom:32px}.eyebrow{display:inline-block;padding:9px 16px;border-radius:30px;background:#eee8ff;color:#6950cc;font-size:12px;font-weight:700;letter-spacing:1.5px}h1{font-size:clamp(32px,5vw,46px);letter-spacing:-1.7px;margin:17px 0 10px}header p{color:var(--muted);line-height:1.6;margin:0}.card{background:white;border:1px solid #ffffff;border-radius:24px;box-shadow:0 24px 70px #37306b14;overflow:hidden}.toolbar{padding:24px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.filter-group{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.label,.count{font-size:13px;color:var(--muted)}.label{font-weight:600}.buttons{display:flex;gap:8px;flex-wrap:wrap}button{font:inherit;font-size:13px;font-weight:600;padding:11px 16px;background:white;border:1px solid #dfe4ef;border-radius:11px;color:#596681;cursor:pointer;transition:background .15s,box-shadow .15s}button:hover:not(:disabled){background:#f2efff;color:var(--primary)}button[aria-pressed="true"]{background:var(--primary);border-color:var(--primary);color:white;box-shadow:0 5px 14px #6954e82b}button:focus-visible{outline:3px solid #b8acff;outline-offset:3px}button:disabled{opacity:.45;cursor:not-allowed}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:left;background:#f8f9fd;color:#8690a6;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;padding:19px 26px}td{padding:24px 26px;border-top:1px solid #edf0f6;font-size:14px;line-height:1.65;overflow-wrap:anywhere;vertical-align:middle}tbody tr:hover{background:#fbfaff}.business{font-weight:650;color:#293451}.owner{color:#52617b}.website{color:#6551ce}.badge{display:inline-block;padding:5px 11px;border-radius:8px;font-size:12px;font-weight:600}.unknown{color:#936013;background:#fff2d8}.missing{color:#7b859a;background:#f0f3f8}.state{text-align:center;padding:64px 22px;color:var(--muted)}.state h2{color:var(--ink);font-size:20px;margin:0 0 10px}.state p{margin:0;line-height:1.7}.state button{margin-top:20px}.pagination{padding:21px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid var(--line)}footer{text-align:center;color:#8b94a9;font-size:12px;margin-top:22px}[hidden]{display:none!important}@media(max-width:640px){body{padding:32px 14px}.toolbar{padding:20px}.filter-group{align-items:flex-start;flex-direction:column}table{min-width:680px}th,td{padding:18px 20px}.pagination{padding:18px}}
+</style>
+</head>
+<body>
+<main class="dashboard">
+<header><span class="eyebrow">LEADFETCHER</span><h1>Your saved leads</h1><p>Discover your contacts. Find missing owner details. Keep your research moving.</p></header>
+<section class="card" aria-label="Saved business leads">
+<div class="toolbar"><div class="filter-group"><span class="label">Filter by owner:</span><div class="buttons" role="group" aria-label="Owner status">
+<button type="button" data-filter="all" aria-pressed="true">All leads</button>
+<button type="button" data-filter="known" aria-pressed="false">Known owners</button>
+<button type="button" data-filter="unknown" aria-pressed="false">Unknown owners</button>
+</div></div><span class="count" id="count" role="status" aria-live="polite">Loading leads…</span></div>
+<div class="table-wrap" id="table-wrap" hidden><table aria-label="Saved leads"><colgroup><col style="width:44%"><col style="width:30%"><col style="width:26%"></colgroup><thead><tr><th scope="col">Business</th><th scope="col">Owner</th><th scope="col">Website</th></tr></thead><tbody id="leads-body"></tbody></table></div>
+<div class="state" id="state" role="status" aria-live="polite"><h2 id="state-title">Loading leads…</h2><p id="state-message">Fetching your saved businesses.</p><button type="button" id="retry" hidden>Try again</button></div>
+<div class="pagination"><button type="button" id="previous" disabled>← Previous</button><span class="count" id="page-label">Page 1</span><button type="button" id="next" disabled>Next →</button></div>
+</section><footer>LeadFetcher · Business research dashboard</footer>
+</main>
+<script>
+// Backend contract: GET /api/leads?owner_status=all|known|unknown&limit=20&offset=0
+// Response: {items: [{id, business_name, owner_name, website}], total, limit, offset}
+const API_URL = '/get_leads';
+const PAGE_SIZE = 100;
+const filters = [...document.querySelectorAll('[data-filter]')];
+const tbody = document.getElementById('leads-body');
+const tableWrap = document.getElementById('table-wrap');
+const count = document.getElementById('count');
+const state = document.getElementById('state');
+const stateTitle = document.getElementById('state-title');
+const stateMessage = document.getElementById('state-message');
+const retry = document.getElementById('retry');
+const previous = document.getElementById('previous');
+const next = document.getElementById('next');
+const pageLabel = document.getElementById('page-label');
+let activeFilter = 'all';
+let offset = 0;
+let controller;
+const missing = new Set(['', 'unknown', 'not found', 'n/a', 'na', 'none', 'null', '-', 'unknown owner']);
+const isMissing = value => missing.has(String(value ?? '').trim().toLowerCase());
+function showState(title, message, allowRetry = false) {
+    tableWrap.hidden = true;
+    state.hidden = false;
+    stateTitle.textContent = title;
+    stateMessage.textContent = message;
+    retry.hidden = !allowRetry;
+}
+function addCell(row, value, className) {
+    const cell = document.createElement('td');
+    const span = document.createElement('span');
+    span.className = className;
+    span.textContent = String(value);
+    cell.appendChild(span);
+    row.appendChild(cell);
+}
+
+function addWebsiteCell(row, url) {
+    const cell = document.createElement('td');
+
+    if (isMissing(url)) {
+        const span = document.createElement('span');
+        span.className = 'badge missing';
+        span.textContent = 'Not found';
+        cell.appendChild(span);
+    } else {
+        const link = document.createElement('a');
+        const displayUrl = String(url).trim();
+        let href = displayUrl;
+
+        if (!/^https?:\/\//i.test(href)) {
+            href = `https://${href}`;
+        }
+
+        link.href = href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'website';
+        link.textContent = displayUrl;
+
+        cell.appendChild(link);
+    }
+
+    row.appendChild(cell);
+}
+function render(items) {
+    const fragment = document.createDocumentFragment();
+    for (const lead of items) {
+        const row = document.createElement('tr');
+        addCell(row, lead.business_name || 'Unnamed business', 'business');
+        addCell(row, isMissing(lead.owner_name) ? 'Unknown owner' : lead.owner_name,
+            isMissing(lead.owner_name) ? 'badge unknown' : 'owner');
+
+        addWebsiteCell(row, lead.business_website);
+        // addCell(row, isMissing(lead.business_website) ? 'Not found' : lead.business_website,
+        //     isMissing(lead.business_website) ? 'badge missing' : 'website');
+        fragment.appendChild(row);
+    }
+    tbody.replaceChildren(fragment);
+}
+async function loadLeads() {
+    controller?.abort();
+    const request = new AbortController();
+    controller = request;
+    const requestOffset = offset;
+    const requestFilter = activeFilter;
+    filters.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === requestFilter)));
+    previous.disabled = true;
+    next.disabled = true;
+    count.textContent = 'Loading leads…';
+    pageLabel.textContent = `Page ${Math.floor(requestOffset / PAGE_SIZE) + 1}`;
+    tbody.replaceChildren();
+    showState('Loading leads…', 'Fetching your saved businesses.');
+    const params = new URLSearchParams({owner_status: requestFilter, limit: String(PAGE_SIZE), offset: String(requestOffset)});
+    try {
+        const response = await fetch(`${API_URL}?${params}`, {
+            signal: request.signal,
+            headers: {'Accept': 'application/json'},
+            cache: 'no-store'
+        });
+        if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
+        const data = await response.json();
+        if (controller !== request) return;
+        if (!Array.isArray(data.items) || !Number.isInteger(data.total) || data.total < 0 ||
+            data.items.some(item => !item || typeof item !== 'object')) {
+            throw new Error('Unexpected API response. Expected items array and numeric total.');
+        }
+        if (!data.items.length && requestOffset > 0) {
+            offset = 0;
+            loadLeads();
+            return;
+        }
+        render(data.items);
+        const first = data.items.length ? requestOffset + 1 : 0;
+        count.textContent = `Showing ${first}–${requestOffset + data.items.length} of ${data.total} matching leads`;
+        previous.disabled = requestOffset === 0;
+        next.disabled = requestOffset + PAGE_SIZE >= data.total;
+        if (data.items.length) {
+            tableWrap.hidden = false;
+            state.hidden = true;
+        } else {
+            showState('No leads found', 'No saved leads match this owner filter.');
+        }
+    } catch (error) {
+        if (error.name === 'AbortError' || controller !== request) return;
+        console.error('Lead lookup failed:', error);
+        count.textContent = 'Unable to load leads';
+        showState('Could not load leads', 'Check your connection and backend API, then try again.', true);
+    }
+}
+filters.forEach(button => button.addEventListener('click', () => {
+    activeFilter = button.dataset.filter;
+    offset = 0;
+    loadLeads();
+}));
+previous.addEventListener('click', () => {offset = Math.max(0, offset - PAGE_SIZE); loadLeads();});
+next.addEventListener('click', () => {offset += PAGE_SIZE; loadLeads();});
+retry.addEventListener('click', loadLeads);
+loadLeads();
+</script>
+</body>
+</html>

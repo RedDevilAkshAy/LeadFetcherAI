@@ -5,28 +5,33 @@ import logging
 from typing import Any, List, Optional
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+from openai import OpenAI
 
 try:
-    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL
+    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
     from lead_fetcher.models import BusinessEmbedding
 except ImportError:
-    from config import GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL
+    from config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
     from models import BusinessEmbedding
 
 logger = logging.getLogger("lead_fetcher.rag")
 
-_google_client = None
+_agent_nim_client = None
 
+def get_agent_client():
+    global _agent_nim_client
 
-def get_genai_client():
-    global _google_client
-    if _google_client is None and GEMINI_API_KEY:
+    if _agent_nim_client is None and NVIDIA_API_KEY:
         try:
-            from google import genai
-            _google_client = genai.Client(api_key=GEMINI_API_KEY)
+            _agent_nim_client = OpenAI(
+                base_url=NVIDIA_BASE_URL,
+                api_key=NVIDIA_API_KEY,
+            )
         except Exception as e:
-            logger.warning(f"Could not initialize google-genai client for RAG: {e}")
-    return _google_client
+            logger.warning(f"Could not initialize NVIDIA NIM client for RAG: {e}")
+
+
+    return _agent_nim_client
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
@@ -47,38 +52,83 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
     return chunks
 
 
-async def embed_text(text: str) -> Optional[List[float]]:
-    """Generates an embedding vector for given text using Gemini Embeddings API."""
-    client = get_genai_client()
-    if not client or not text.strip():
+# async def embed_text(text: str) -> Optional[List[float]]:
+#     """Generates an embedding vector for given text using Gemini Embeddings API."""
+#     client = get_agent_client()
+#     if not client or not text.strip():
+#         return None
+
+#     model = NVIDIA_EMBEDDING_MODEL
+
+#     try:
+#         # Use native async if supported by google-genai
+#         if hasattr(client, "aio") and hasattr(client.aio, "models"):
+#             response = await client.aio.models.embed_content(
+#                 model=model,
+#                 contents=text,
+#             )
+#         else:
+#             response = await asyncio.to_thread(
+#                 client.models.embed_content,
+#                 model=model,
+#                 contents=text,
+#             )
+
+#         if hasattr(response, "embeddings") and response.embeddings:
+#             return response.embeddings[0].values
+#         elif hasattr(response, "embedding") and response.embedding:
+#             return response.embedding.values
+#         return None
+
+#     except Exception as e:
+#         logger.warning(f"Failed to generate embedding for text ({len(text)} chars): {e}")
+#         return None
+
+async def embed_text(
+    text: str,
+    input_type: Literal["passage", "query"] = "passage",
+) -> Optional[List[float]]:
+    """Generates an embedding vector using the NVIDIA NIM embeddings API."""
+    if not text or not text.strip():
         return None
 
-    model = GEMINI_EMBEDDING_MODEL or "gemini-embedding-001"
+    if input_type not in ("passage", "query"):
+        raise ValueError("input_type must be 'passage' or 'query'")
+
+    if not NVIDIA_EMBEDDING_MODEL:
+        logger.error("NVIDIA_EMBEDDING_MODEL is not configured")
+        return None
+
+    client = get_agent_client()
+    if not client:
+        return None
 
     try:
-        # Use native async if supported by google-genai
-        if hasattr(client, "aio") and hasattr(client.aio, "models"):
-            response = await client.aio.models.embed_content(
-                model=model,
-                contents=text,
-            )
-        else:
-            response = await asyncio.to_thread(
-                client.models.embed_content,
-                model=model,
-                contents=text,
-            )
+        response = await asyncio.to_thread(
+            client.embeddings.create,
+            model=NVIDIA_EMBEDDING_MODEL,
+            input=[text.strip()],
+            encoding_format="float",
+            extra_body={
+                "input_type": input_type,
+                "truncate": "END",
+            },
+        )
 
-        if hasattr(response, "embeddings") and response.embeddings:
-            return response.embeddings[0].values
-        elif hasattr(response, "embedding") and response.embedding:
-            return response.embedding.values
-        return None
+        if not response.data:
+            logger.warning("NVIDIA NIM returned no embedding data")
+            return None
+
+        return list(response.data[0].embedding)
 
     except Exception as e:
-        logger.warning(f"Failed to generate embedding for text ({len(text)} chars): {e}")
+        logger.warning(
+            "Failed to generate NVIDIA embedding for text (%d chars, input_type=%s): %s",
+            len(text),
+            input_type,
+            e,
+        )
         return None
-
 
 async def store_embeddings(lead_id: int, content_chunks: List[dict], db: Session) -> None:
     """Stores multiple chunks and their pgvector embeddings for a specific lead."""

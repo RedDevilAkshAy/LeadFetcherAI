@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+from pathlib import Path
+
 
 from database import get_db, init_db
 from schemas import (
@@ -19,8 +24,15 @@ from schemas import (
     PitchResponse,
 )
 from lead_fetcher.models import Lead, BusinessAnalysis, LeadScore
-from lead_fetcher.sourcer import LeadFinder
+from lead_fetcher.sourcer import LeadFinder, SourceData
 from lead_fetcher.pipeline import process_lead_pipeline
+
+
+BASE_DIR = Path(__file__).resolve().parent
+
+templates = Jinja2Templates(
+    directory=str(BASE_DIR / "templates")
+)
 
 
 @asynccontextmanager
@@ -200,11 +212,41 @@ async def analyze_existing_lead(lead_id: int, db: Session = Depends(get_db)):
     return build_full_report(lead)
 
 
-@app.get("/get_leads", response_model=List[LeadResponse])
-def get_leads(db: Session = Depends(get_db)):
-    """Fetch all leads saved in the database."""
-    leads = db.query(Lead).all()
-    return leads
+@app.get("/get_leads", response_model=LeadResponse)
+def get_leads(
+        owner_status: str = Query("all"),
+        limit: int = Query(20, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+        db: Session = Depends(get_db),
+    ):
+
+    query = db.query(Lead)
+
+    if owner_status == "known":
+        query = query.filter(
+            Lead.owner_name.isnot(None),
+            Lead.owner_name != "Unknown",
+        )
+    elif owner_status == "unknown":
+        query = query.filter(
+            (Lead.owner_name.is_(None)) | (Lead.owner_name == "Unknown")
+        )
+
+    total = db.query(Lead).count()
+
+    leads = (
+        query
+        .order_by(Lead.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "items": leads,
+        "total": total,
+        "page": (offset // limit) + 1,
+    }
 
 
 @app.post("/clean_leads")
@@ -299,3 +341,13 @@ def delete_lead(lead_id: int, db: Session = Depends(get_db)):
     db.delete(fetch_lead)
     db.commit()
     return {"message": f"Lead {lead_id} deleted successfully"}
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    # Example data only—replace with your database query.
+    dashboard_details = SourceData().dashboard_details()    
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context=dashboard_details,
+    )
