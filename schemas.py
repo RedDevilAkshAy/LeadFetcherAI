@@ -104,3 +104,4 @@ class BasicLeadData(BaseModel):
     characteristic: Optional[str] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
+    priority: Optional[str] = None  # Flattened from related LeadScore

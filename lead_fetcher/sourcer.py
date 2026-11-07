@@ -690,11 +690,17 @@ class SourceData:
         owner_status: str = "all",
         location: Optional[str] = None,
         characteristic: Optional[str] = None,
+        search: Optional[str] = None,
+        sort_by: str = "newest",
         limit: int = 20,
         offset: int = 0,
     ):
+        from sqlalchemy import or_, case
+        from lead_fetcher.models import LeadScore
+
         query = db.query(Lead)
 
+        # Owner status filter
         if owner_status == "known":
             query = query.filter(
                 Lead.owner_name.isnot(None),
@@ -705,24 +711,102 @@ class SourceData:
                 (Lead.owner_name.is_(None)) | (Lead.owner_name == "Unknown")
             )
 
+        # Location filter
         if location and location not in ("all", ""):
             query = query.filter(Lead.location == location)
 
+        # Characteristic filter
         if characteristic and characteristic not in ("all", ""):
             query = query.filter(Lead.characteristic == characteristic)
 
+        # Search filter: matches business name, owner name, location, or characteristic
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    Lead.business_name.ilike(term),
+                    Lead.owner_name.ilike(term),
+                    Lead.location.ilike(term),
+                    Lead.characteristic.ilike(term),
+                )
+            )
+
         total = query.count()
+
+        # Sorting
+        if sort_by == "priority_high":
+            priority_order = case(
+                (LeadScore.priority == "High", 1),
+                (LeadScore.priority == "Medium", 2),
+                (LeadScore.priority == "Low", 3),
+                else_=4,
+            )
+            query = (
+                query
+                .outerjoin(LeadScore, Lead.id == LeadScore.lead_id)
+                .order_by(priority_order, Lead.id.desc())
+            )
+        elif sort_by == "priority_low":
+            priority_order = case(
+                (LeadScore.priority == "Low", 1),
+                (LeadScore.priority == "Medium", 2),
+                (LeadScore.priority == "High", 3),
+                else_=4,
+            )
+            query = (
+                query
+                .outerjoin(LeadScore, Lead.id == LeadScore.lead_id)
+                .order_by(priority_order, Lead.id.desc())
+            )
+        elif sort_by == "score_high":
+            query = (
+                query
+                .outerjoin(LeadScore, Lead.id == LeadScore.lead_id)
+                .order_by(LeadScore.score.desc().nulls_last(), Lead.id.desc())
+            )
+        elif sort_by == "score_low":
+            query = (
+                query
+                .outerjoin(LeadScore, Lead.id == LeadScore.lead_id)
+                .order_by(LeadScore.score.asc().nulls_last(), Lead.id.desc())
+            )
+        elif sort_by == "name_az":
+            query = query.order_by(Lead.business_name.asc())
+        elif sort_by == "name_za":
+            query = query.order_by(Lead.business_name.desc())
+        elif sort_by == "oldest":
+            query = query.order_by(Lead.id.asc())
+        else:  # "newest" (default)
+            query = query.order_by(Lead.id.desc())
 
         leads = (
             query
-            .order_by(Lead.id)
             .offset(offset)
             .limit(limit)
             .all()
         )
 
+        # Serialize to dicts, flattening the priority from the related LeadScore
+        serialized = []
+        for lead in leads:
+            score = lead.score
+            serialized.append({
+                "id": lead.id,
+                "business_name": lead.business_name,
+                "owner_name": lead.owner_name,
+                "business_website": lead.business_website,
+                "business_profile": lead.business_profile,
+                "email": lead.email,
+                "website_email": lead.website_email,
+                "location": lead.location,
+                "characteristic": lead.characteristic,
+                "rating": lead.rating,
+                "review_count": lead.review_count,
+                "priority": score.priority if score else None,
+            })
+
         return {
-            "items": leads,
+            "items": serialized,
             "total": total,
             "page": (offset // limit) + 1,
         }

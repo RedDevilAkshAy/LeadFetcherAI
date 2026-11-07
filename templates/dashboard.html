@@ -571,6 +571,86 @@ tbody tr:hover {
   overflow-y: auto;
 }
 
+/* Search Bar */
+.search-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbff;
+}
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+}
+.search-input-wrap .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+.search-input {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  font: inherit;
+  font-size: 13px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.2s;
+  outline: none;
+}
+.search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(105, 84, 232, 0.12);
+}
+.search-input::placeholder { color: #a0aec0; }
+.btn-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #9ca3af;
+  display: none;
+}
+.btn-search-clear:hover { color: var(--danger); }
+.sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.sort-wrap label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sort-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.sort-select:focus { border-color: var(--primary); }
+
 /* State & Pagination */
 .state {
   text-align: center;
@@ -675,6 +755,36 @@ footer {
       <span class="count" id="count" role="status" aria-live="polite">Loading leads…</span>
     </div>
 
+    <!-- Search Bar + Sort Row -->
+    <div class="search-bar-wrap">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input
+          type="search"
+          id="search-input"
+          class="search-input"
+          placeholder="Search business name, owner, location…"
+          autocomplete="off"
+          aria-label="Search businesses"
+        >
+        <button type="button" class="btn-search-clear" id="btn-search-clear" title="Clear search" aria-label="Clear search">✕</button>
+      </div>
+
+      <div class="sort-wrap">
+        <label for="sort-select">Sort by</label>
+        <select id="sort-select" class="sort-select" aria-label="Sort leads by">
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="priority_high">Priority: High → Low</option>
+          <option value="priority_low">Priority: Low → High</option>
+          <option value="score_high">Score: High → Low</option>
+          <option value="score_low">Score: Low → High</option>
+          <option value="name_az">Name A → Z</option>
+          <option value="name_za">Name Z → A</option>
+        </select>
+      </div>
+    </div>
+
     <!-- Stacked Filters Panel (Expandable) -->
     <div id="filters-panel" class="filters-panel" hidden>
       <div class="filters-grid">
@@ -730,9 +840,10 @@ footer {
         <thead>
           <tr>
             <th scope="col" style="width: 32%;">Business</th>
-            <th scope="col" style="width: 22%;">Owner</th>
-            <th scope="col" style="width: 24%;">Website / Contact</th>
-            <th scope="col" style="width: 22%; text-align: right;">Action</th>
+            <th scope="col" style="width: 18%;">Owner</th>
+            <th scope="col" style="width: 14%; text-align: center;">Priority</th>
+            <th scope="col" style="width: 20%;">Website / Contact</th>
+            <th scope="col" style="width: 16%; text-align: right;">Action</th>
           </tr>
         </thead>
         <tbody id="leads-body"></tbody>
@@ -952,6 +1063,9 @@ footer {
 let activeOwner = 'all';
 let activeLocation = 'all';
 let activeCharacteristic = 'all';
+let activeSearch = '';
+let activeSortBy = 'newest';
+let searchDebounceTimer = null;
 let isFiltersOpen = false;
 let offset = 0;
 const PAGE_SIZE = 20;
@@ -990,6 +1104,11 @@ const selectCharacteristic = document.getElementById('filter-characteristic');
 const btnResetFilters = document.getElementById('btn-reset-filters');
 const btnApplyFilters = document.getElementById('btn-apply-filters');
 const filterSummaryText = document.getElementById('filter-summary-text');
+
+// Search & Sort DOM elements
+const searchInput = document.getElementById('search-input');
+const btnSearchClear = document.getElementById('btn-search-clear');
+const sortSelect = document.getElementById('sort-select');
 
 // Details DOM elements
 const btnBack = document.getElementById('btn-back');
@@ -1140,11 +1259,43 @@ function resetAllFilters() {
   ownerButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.owner === 'all')));
   selectLocation.value = 'all';
   selectCharacteristic.value = 'all';
+  // Also clear search
+  activeSearch = '';
+  if (searchInput) { searchInput.value = ''; }
+  if (btnSearchClear) { btnSearchClear.style.display = 'none'; }
   offset = 0;
   updateFilterBadgesAndChips();
   loadLeads();
 }
 btnResetFilters.addEventListener('click', resetAllFilters);
+
+// Search input — debounce 350ms
+searchInput.addEventListener('input', () => {
+  const val = searchInput.value.trim();
+  btnSearchClear.style.display = val ? 'block' : 'none';
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    activeSearch = val;
+    offset = 0;
+    loadLeads();
+  }, 350);
+});
+
+// Clear search button
+btnSearchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  btnSearchClear.style.display = 'none';
+  activeSearch = '';
+  offset = 0;
+  loadLeads();
+});
+
+// Sort select — immediate reload
+sortSelect.addEventListener('change', () => {
+  activeSortBy = sortSelect.value;
+  offset = 0;
+  loadLeads();
+});
 
 // Owner button selection
 ownerButtons.forEach(btn => {
@@ -1268,7 +1419,25 @@ function renderLeads(items) {
     }
     tr.appendChild(tdOwner);
 
-    // 3. Website / Contact cell
+    // 3. Priority cell
+    const tdPriority = document.createElement('td');
+    tdPriority.style.textAlign = 'center';
+    const prio = lead.priority || null;
+    if (prio && !isMissing(prio)) {
+      const prioBadge = document.createElement('span');
+      prioBadge.className = `badge priority-${prio.toLowerCase()}`;
+      prioBadge.textContent = prio;
+      tdPriority.appendChild(prioBadge);
+    } else {
+      const unscored = document.createElement('span');
+      unscored.className = 'badge';
+      unscored.style.cssText = 'background:#f1f5f9;color:#94a3b8;';
+      unscored.textContent = '—';
+      tdPriority.appendChild(unscored);
+    }
+    tr.appendChild(tdPriority);
+
+    // 4. Website / Contact cell
     const tdContact = document.createElement('td');
     const contactWrap = document.createElement('div');
     contactWrap.style.display = 'flex';
@@ -1328,6 +1497,7 @@ async function loadLeads() {
 
   const params = new URLSearchParams({
     owner_status: activeOwner,
+    sort_by: activeSortBy,
     limit: String(PAGE_SIZE),
     offset: String(offset)
   });
@@ -1337,6 +1507,9 @@ async function loadLeads() {
   }
   if (activeCharacteristic && activeCharacteristic !== 'all') {
     params.set('characteristic', activeCharacteristic);
+  }
+  if (activeSearch) {
+    params.set('search', activeSearch);
   }
 
   try {

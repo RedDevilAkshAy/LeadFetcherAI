@@ -154,6 +154,8 @@ def get_leads(
     owner_status: str = Query("all"),
     location: Optional[str] = Query(None),
     characteristic: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Search business name, owner, location, or characteristic"),
+    sort_by: str = Query("newest", description="Sort order: newest | oldest | priority_high | priority_low | score_high | score_low | name_az | name_za"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -162,6 +164,8 @@ def get_leads(
         owner_status=owner_status,
         location=location,
         characteristic=characteristic,
+        search=search,
+        sort_by=sort_by,
         limit=limit,
         offset=offset,
     )
