@@ -4,7 +4,7 @@ import json
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Depends, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -17,11 +17,10 @@ from database import get_db, init_db
 from schemas import (
     FindNew,
     LeadSchema,
+    EditEmailSchema,
     LeadResponse,
     FullLeadReportResponse,
-    AnalysisResponse,
-    ScoreResponse,
-    PitchResponse,
+    AllLeadResponse
 )
 from lead_fetcher.models import Lead, BusinessAnalysis, LeadScore
 from lead_fetcher.sourcer import LeadFinder, SourceData
@@ -54,113 +53,6 @@ app = FastAPI(
 )
 
 
-def format_lead_card(lead: Lead, analysis: Optional[BusinessAnalysis], score: Optional[LeadScore]) -> str:
-    """Builds the exact human-readable diagnostic report card requested."""
-    b_name = lead.business_name or "Unknown Business"
-    loc = lead.location or ""
-    biz_header = f"{b_name}, {loc}" if loc else b_name
-
-    web_sum = analysis.website_summary if analysis and analysis.website_summary else (lead.business_website or "No website")
-    rating_val = lead.rating or 0.0
-    reviews_val = lead.review_count or 0
-    reviews_line = f"{rating_val} stars, {reviews_val} reviews"
-
-    opp_text = "Local visibility & conversion optimization"
-    if score and score.opportunities:
-        try:
-            opp_list = json.loads(score.opportunities)
-            if opp_list:
-                opp_text = " + ".join(opp_list[:2])
-        except Exception:
-            opp_text = score.opportunities
-
-    rec_pitch = score.recommended_actions if score and score.recommended_actions else "Improve review volume and add instant lead capture options"
-    prio = score.priority if score and score.priority else "Medium"
-    whatsapp_msg = score.pitch_whatsapp if score and score.pitch_whatsapp else "No pitch generated yet"
-
-    return (
-        f"Business: {biz_header}\n"
-        f"Website: {web_sum}\n"
-        f"Reviews: {reviews_line}\n"
-        f"Opportunity: {opp_text}\n"
-        f"Recommended pitch: {rec_pitch}\n"
-        f"Priority: {prio}\n\n"
-        f"Generated message:\n"
-        f"{whatsapp_msg}"
-    )
-
-
-def build_full_report(lead: Lead) -> FullLeadReportResponse:
-    analysis = lead.analyses[-1] if lead.analyses else None
-    score = lead.score
-
-    analysis_resp = None
-    if analysis:
-        services = []
-        if analysis.services_found:
-            try:
-                services = json.loads(analysis.services_found)
-            except Exception:
-                services = [analysis.services_found]
-
-        socials = {}
-        if analysis.social_links:
-            try:
-                socials = json.loads(analysis.social_links)
-            except Exception:
-                socials = {}
-
-        analysis_resp = AnalysisResponse(
-            services_found=services,
-            has_online_booking=analysis.has_online_booking,
-            has_whatsapp=analysis.has_whatsapp,
-            has_contact_form=analysis.has_contact_form,
-            pricing_found=analysis.pricing_found,
-            social_links=socials,
-            website_summary=analysis.website_summary,
-        )
-
-    score_resp = None
-    pitch_resp = None
-    if score:
-        opps = []
-        if score.opportunities:
-            try:
-                opps = json.loads(score.opportunities)
-            except Exception:
-                opps = [score.opportunities]
-
-        score_resp = ScoreResponse(
-            score=score.score,
-            priority=score.priority,
-            opportunities=opps,
-            recommended_actions=score.recommended_actions,
-        )
-
-        pitch_resp = PitchResponse(
-            whatsapp=score.pitch_whatsapp,
-            email=score.pitch_email,
-        )
-
-    formatted_card = format_lead_card(lead, analysis, score)
-
-    return FullLeadReportResponse(
-        id=lead.id,
-        business_name=lead.business_name,
-        location=lead.location,
-        business_website=lead.business_website,
-        owner_name=lead.owner_name,
-        number=lead.number,
-        characteristic=lead.characteristic,
-        rating=lead.rating,
-        review_count=lead.review_count,
-        analysis=analysis_resp,
-        score=score_resp,
-        pitch=pitch_resp,
-        formatted_card=formatted_card,
-    )
-
-
 @app.post("/find_new")
 async def find_new_leads(data: FindNew, db: Session = Depends(get_db)):
     """Fetch businesses for any niche and locations via Google Places, extract owner names,
@@ -187,18 +79,6 @@ async def find_new_leads(data: FindNew, db: Session = Depends(get_db)):
     }
 
 
-@app.get("/leads/{lead_id}", response_model=FullLeadReportResponse)
-def get_lead(lead_id: int, db: Session = Depends(get_db)):
-    """Fetch a single lead by its ID with full intelligence:
-
-    Website analysis, score, diagnosed opportunities, and generated WhatsApp/Email pitches.
-    """
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-
-    return build_full_report(lead)
-
 
 @app.post("/leads/{lead_id}/analyze", response_model=FullLeadReportResponse)
 async def analyze_existing_lead(lead_id: int, db: Session = Depends(get_db)):
@@ -209,44 +89,97 @@ async def analyze_existing_lead(lead_id: int, db: Session = Depends(get_db)):
 
     await process_lead_pipeline(lead_id=lead.id, db=db)
     db.refresh(lead)
-    return build_full_report(lead)
+    return SourceData().build_full_report(db=db, lead_id=lead.id)
 
 
-@app.get("/get_leads", response_model=LeadResponse)
-def get_leads(
-        owner_status: str = Query("all"),
-        limit: int = Query(20, ge=1, le=100),
-        offset: int = Query(0, ge=0),
-        db: Session = Depends(get_db),
-    ):
+@app.put("/leads/{lead_id}/email")
+@app.patch("/leads/{lead_id}/email")
+def update_lead_email(lead_id: int, payload: EditEmailSchema, db: Session = Depends(get_db)):
+    """Update only the business owner's email for a specific lead."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
-    query = db.query(Lead)
+    clean_email = payload.email.strip() if payload.email and payload.email.strip() else None
 
-    if owner_status == "known":
-        query = query.filter(
-            Lead.owner_name.isnot(None),
-            Lead.owner_name != "Unknown",
-        )
-    elif owner_status == "unknown":
-        query = query.filter(
-            (Lead.owner_name.is_(None)) | (Lead.owner_name == "Unknown")
-        )
+    # Check if duplicate email exists for another lead
+    if clean_email:
+        duplicate = db.query(Lead).filter(Lead.email == clean_email, Lead.id != lead_id).first()
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Email '{clean_email}' is already associated with business '{duplicate.business_name}' (ID: {duplicate.id})",
+            )
 
-    total = db.query(Lead).count()
-
-    leads = (
-        query
-        .order_by(Lead.id)
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    lead.email = clean_email
+    try:
+        db.commit()
+        db.refresh(lead)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Database constraint violation while saving email")
 
     return {
-        "items": leads,
-        "total": total,
-        "page": (offset // limit) + 1,
+        "success": True,
+        "lead_id": lead.id,
+        "email": lead.email,
+        "message": "Email updated successfully"
     }
+
+
+@app.post("/leads/{lead_id}/send_to_crm")
+async def send_lead_to_crm(lead_id: int, db: Session = Depends(get_db)):
+    """Push an existing lead to Zoho CRM Leads module. Requires an email."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    email = (lead.email or lead.website_email or "").strip()
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot send to CRM: No email address available for this business."
+        )
+
+    analysis = lead.analyses[-1] if lead.analyses else None
+    score = lead.score
+
+    from lead_fetcher.connect_crm import push_lead_to_zoho
+    return await push_lead_to_zoho(lead=lead, analysis=analysis, score=score)
+
+
+@app.get("/get_leads", response_model=AllLeadResponse)
+def get_leads(
+    db: Session = Depends(get_db),
+    owner_status: str = Query("all"),
+    location: Optional[str] = Query(None),
+    characteristic: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    result = SourceData().get_leads(
+        db=db,
+        owner_status=owner_status,
+        location=location,
+        characteristic=characteristic,
+        limit=limit,
+        offset=offset,
+    )
+    return result
+
+
+@app.get("/api/dashboard_filters")
+def get_dashboard_filters(db: Session = Depends(get_db)):
+    """Fetch distinct locations and characteristics for dropdown filters."""
+    return SourceData().dashboard_details()
+
+@app.get("/leads/{lead_id}", response_model=FullLeadReportResponse)
+def get_lead(lead_id: int, db: Session = Depends(get_db)):
+    """Fetch a single lead by its ID with full intelligence:
+
+    Website analysis, score, diagnosed opportunities, and generated WhatsApp/Email pitches.
+    """
+    return SourceData().build_full_report(db=db, lead_id=lead_id)
 
 
 @app.post("/clean_leads")
@@ -342,12 +275,73 @@ def delete_lead(lead_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Lead {lead_id} deleted successfully"}
 
+@app.get("/", response_class=HTMLResponse)
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    # Example data only—replace with your database query.
-    dashboard_details = SourceData().dashboard_details()    
+@app.get("/lead/{lead_id}", response_class=HTMLResponse)
+async def dashboard(request: Request, lead_id: Optional[int] = None):
+    dashboard_details = SourceData().dashboard_details()
+    dashboard_details["initial_lead_id"] = lead_id
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context=dashboard_details,
     )
+
+
+# ---------------------------------------------------------------------------
+# Zoho CRM OAuth Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/zoho/status")
+def zoho_status():
+    """Return the current Zoho CRM connection status and the authorization URL."""
+    from lead_fetcher.connect_crm import is_zoho_connected, get_zoho_auth_url
+    return {
+        "connected": is_zoho_connected(),
+        "auth_url": get_zoho_auth_url(),
+    }
+
+
+@app.get("/zoho/connect")
+def zoho_connect():
+    """Redirect the browser to the Zoho OAuth consent page."""
+    from lead_fetcher.connect_crm import get_zoho_auth_url
+    return RedirectResponse(url=get_zoho_auth_url(), status_code=302)
+
+
+@app.get("/zoho/callback")
+async def zoho_callback(
+    code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+):
+    """Handle the Zoho OAuth redirect, exchange the code for tokens, persist the refresh token."""
+    import logging as _logging
+    from lead_fetcher.connect_crm import exchange_code_for_tokens, save_refresh_token
+
+    if error:
+        msg = error_description or error
+        _logging.getLogger("server").error("Zoho OAuth callback error: %s", msg)
+        return RedirectResponse(url=f"/dashboard?zoho=error&msg={msg}", status_code=302)
+
+    if not code:
+        return RedirectResponse(
+            url="/dashboard?zoho=error&msg=No+authorization+code+received",
+            status_code=302,
+        )
+
+    try:
+        tokens = await exchange_code_for_tokens(code)
+    except HTTPException as exc:
+        return RedirectResponse(url=f"/dashboard?zoho=error&msg={exc.detail}", status_code=302)
+
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        return RedirectResponse(
+            url="/dashboard?zoho=error&msg=Zoho+did+not+return+a+refresh+token",
+            status_code=302,
+        )
+
+    # Persist token to .env and update runtime config immediately
+    save_refresh_token(refresh_token)
+    return RedirectResponse(url="/dashboard?zoho=connected", status_code=302)

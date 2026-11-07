@@ -7,6 +7,7 @@ from typing import List, Optional, Union
 from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Depends, Request, Query
 from contextlib import contextmanager
+import json
 
 
 import httpx
@@ -23,6 +24,7 @@ from lead_fetcher.config import (
 )
 from lead_fetcher.models import Lead
 from lead_fetcher.pipeline import process_lead_pipeline
+from schemas import AnalysisResponse, PitchResponse, FullLeadReportResponse, ScoreResponse
 
 
 try:
@@ -191,6 +193,7 @@ class LeadFinder:
 
             phone = data.get("internationalPhoneNumber") or data.get("nationalPhoneNumber")
             business_type = data.get("googleMapsTypeLabel", {}).get("text", "")
+            business_profile = data.get("googleMapsUri")
 
             return {
                 "place_id": place_id,
@@ -202,6 +205,7 @@ class LeadFinder:
                 "phone": phone,
                 "rating": rating,
                 "userRatingCount": user_ratings,
+                "business_profile": business_profile,
             }
 
         except Exception as e:
@@ -473,6 +477,7 @@ Here we go: {business_name} - {website_url}"""
                 business_website=url_val,
                 owner_name=owner_val,
                 email=None,  # None avoids unique constraint collision
+                business_profile=business.get("business_profile"),
                 number=phone if phone else None,
                 characteristic=char_val if char_val else None,
                 location=str(location).strip()[:100] if location else None,
@@ -654,14 +659,190 @@ class SourceData:
             db.close()
 
     def dashboard_details(self):
-        # leads = db.query(Lead).all()
         with self.get_db() as db:
-            business_types = db.query(Lead).with_entities(Lead, Lead.characteristic).all()
-            return {"leads": business_types[0],
-                    "business_types": business_types[1]}
+            types = [
+                row[0]
+                for row in db.query(Lead.characteristic)
+                .distinct()
+                .filter(Lead.characteristic.isnot(None), Lead.characteristic != "")
+                .order_by(Lead.characteristic)
+                .all()
+                if row[0]
+            ]
+            locations = [
+                row[0]
+                for row in db.query(Lead.location)
+                .distinct()
+                .filter(Lead.location.isnot(None), Lead.location != "")
+                .order_by(Lead.location)
+                .all()
+                if row[0]
+            ]
+            return {
+                "business_types": types,
+                "characteristics": types,
+                "locations": locations,
+            }
 
+    def get_leads(
+        self,
+        db: Session,
+        owner_status: str = "all",
+        location: Optional[str] = None,
+        characteristic: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ):
+        query = db.query(Lead)
 
-    def get_leads(self):
-        ""
+        if owner_status == "known":
+            query = query.filter(
+                Lead.owner_name.isnot(None),
+                Lead.owner_name != "Unknown",
+            )
+        elif owner_status == "unknown":
+            query = query.filter(
+                (Lead.owner_name.is_(None)) | (Lead.owner_name == "Unknown")
+            )
 
+        if location and location not in ("all", ""):
+            query = query.filter(Lead.location == location)
+
+        if characteristic and characteristic not in ("all", ""):
+            query = query.filter(Lead.characteristic == characteristic)
+
+        total = query.count()
+
+        leads = (
+            query
+            .order_by(Lead.id)
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        return {
+            "items": leads,
+            "total": total,
+            "page": (offset // limit) + 1,
+        }
+
+    
+    def format_lead_card(self, lead: Lead, analysis: Optional[BusinessAnalysis], score: Optional[LeadScore]) -> str:
+        """Builds the exact human-readable diagnostic report card requested."""
+        b_name = lead.business_name or "Unknown Business"
+        loc = lead.location or ""
+        biz_header = f"{b_name}, {loc}" if loc else b_name
+
+        web_sum = analysis.website_summary if analysis and analysis.website_summary else (lead.business_website or "No website")
+        rating_val = lead.rating or 0.0
+        reviews_val = lead.review_count or 0
+        reviews_line = f"{rating_val} stars, {reviews_val} reviews"
+
+        opp_text = "Local visibility & conversion optimization"
+        if score and score.opportunities:
+            try:
+                opp_list = json.loads(score.opportunities)
+                if opp_list:
+                    opp_text = " + ".join(opp_list[:2])
+            except Exception:
+                opp_text = score.opportunities
+
+        rec_pitch = score.recommended_actions if score and score.recommended_actions else "Improve review volume and add instant lead capture options"
+        prio = score.priority if score and score.priority else "Medium"
+        whatsapp_msg = score.pitch_whatsapp if score and score.pitch_whatsapp else "No pitch generated yet"
+
+        return (
+            f"Business: {biz_header}\n"
+            f"Website: {web_sum}\n"
+            f"Reviews: {reviews_line}\n"
+            f"Opportunity: {opp_text}\n"
+            f"Recommended pitch: {rec_pitch}\n"
+            f"Priority: {prio}\n\n"
+            f"Generated message:\n"
+            f"{whatsapp_msg}"
+        )
+    
+
+    def build_full_report(self, db: Session, lead_id: Union[int, str]) -> FullLeadReportResponse:
+        try:
+            lid = int(lead_id)
+        except (ValueError, TypeError):
+            lid = lead_id
+
+        lead = db.query(Lead).filter(Lead.id == lid).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        analysis = lead.analyses[-1] if lead.analyses else None
+        score = lead.score
+
+        analysis_resp = None
+        if analysis:
+            services = []
+            if analysis.services_found:
+                try:
+                    services = json.loads(analysis.services_found)
+                except Exception:
+                    services = [analysis.services_found]
+
+            socials = {}
+            if analysis.social_links:
+                try:
+                    socials = json.loads(analysis.social_links)
+                except Exception:
+                    socials = {}
+
+            analysis_resp = AnalysisResponse(
+                services_found=services,
+                has_online_booking=analysis.has_online_booking,
+                has_whatsapp=analysis.has_whatsapp,
+                has_contact_form=analysis.has_contact_form,
+                pricing_found=analysis.pricing_found,
+                social_links=socials,
+                website_summary=analysis.website_summary,
+            )
+
+        score_resp = None
+        pitch_resp = None
+        if score:
+            opps = []
+            if score.opportunities:
+                try:
+                    opps = json.loads(score.opportunities)
+                except Exception:
+                    opps = [score.opportunities]
+
+            score_resp = ScoreResponse(
+                score=score.score,
+                priority=score.priority,
+                opportunities=opps,
+                recommended_actions=score.recommended_actions,
+            )
+
+            pitch_resp = PitchResponse(
+                whatsapp=score.pitch_whatsapp,
+                email=score.pitch_email,
+            )
+
+        formatted_card = self.format_lead_card(lead, analysis, score)
+
+        return FullLeadReportResponse(
+            id=lead.id,
+            business_name=lead.business_name,
+            location=lead.location,
+            business_website=lead.business_website,
+            business_profile=lead.business_profile,
+            owner_name=lead.owner_name,
+            email=lead.email,
+            website_email=lead.website_email,
+            number=lead.number,
+            characteristic=lead.characteristic,
+            rating=lead.rating,
+            review_count=lead.review_count,
+            analysis=analysis_resp,
+            score=score_resp,
+            pitch=pitch_resp,
+            formatted_card=formatted_card,
+        )
 

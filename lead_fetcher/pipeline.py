@@ -49,6 +49,12 @@ async def process_lead_pipeline(lead_id: int, db: Session) -> Optional[Dict[str,
     # 1. Crawl Website
     analysis_data = await crawl_website(lead.business_website or "")
 
+    # Save extracted website_email on Lead record if found
+    crawled_email = analysis_data.get("website_email")
+    if crawled_email:
+        lead.website_email = crawled_email
+        db.add(lead)
+
     # 2. Save BusinessAnalysis in DB (upsert)
     existing_analysis = db.scalar(select(BusinessAnalysis).where(BusinessAnalysis.lead_id == lead.id))
     if not existing_analysis:

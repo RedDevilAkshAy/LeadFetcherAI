@@ -17,8 +17,10 @@ class LeadSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     business_name: Optional[str] = None
     business_website: Optional[str] = None
+    business_profile: Optional[str] = None
     owner_name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
+    website_email: Optional[str] = None
     number: Optional[str] = None
     characteristic: Optional[str] = None
     location: Optional[str] = None
@@ -26,12 +28,21 @@ class LeadSchema(BaseModel):
     review_count: Optional[int] = None
 
 
+class EditEmailSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    email: Optional[str] = None
+
 
 class LeadResponse(BaseModel):
     items: List[FullLeadReportResponse]
     total: int
     page: int
-        
+
+
+class AllLeadResponse(BaseModel):
+    items: List[BasicLeadData]
+    total: int
+    page: int
 
 
 class AnalysisResponse(BaseModel):
@@ -49,7 +60,7 @@ class ScoreResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     score: Optional[float] = None
     priority: Optional[str] = None
-    opportunities: List[str] = []
+    opportunities: Optional[List[str]] = []
     recommended_actions: Optional[str] = None
 
 
@@ -64,7 +75,10 @@ class FullLeadReportResponse(BaseModel):
     business_name: Optional[str] = None
     location: Optional[str] = None
     business_website: Optional[str] = None
+    business_profile: Optional[str] = None
     owner_name: Optional[str] = None
+    email: Optional[str] = None
+    website_email: Optional[str] = None
     number: Optional[str] = None
     characteristic: Optional[str] = None
     rating: Optional[float] = None
@@ -75,3 +89,18 @@ class FullLeadReportResponse(BaseModel):
     pitch: Optional[PitchResponse] = None
 
     formatted_card: Optional[str] = None
+
+
+class BasicLeadData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    business_name: Optional[str] = None
+    owner_name: Optional[str] = None
+    business_website: Optional[str] = None
+    business_profile: Optional[str] = None
+    email: Optional[str] = None
+    website_email: Optional[str] = None
+    location: Optional[str] = None
+    characteristic: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None

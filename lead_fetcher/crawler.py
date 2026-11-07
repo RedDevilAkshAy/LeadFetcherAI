@@ -124,6 +124,7 @@ class CrawlResult:
     social_links: dict[str, str] = field(default_factory=dict)
     crawl_text: str = ""
     website_summary: str = ""
+    website_email: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary."""
@@ -397,6 +398,53 @@ def _extract_social_links(soup: BeautifulSoup) -> dict[str, str]:
     return socials
 
 
+_EMAIL_PATTERN: re.Pattern[str] = re.compile(
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+)
+_IGNORED_EMAIL_EXTENSIONS = (
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js", ".woff", ".woff2", ".ttf"
+)
+_IGNORED_EMAIL_DOMAINS = (
+    "example.com", "domain.com", "email.com", "yourdomain.com", "sentry.io", "wixpress.com", "schema.org"
+)
+
+
+def _detect_emails(soup: BeautifulSoup, text: str) -> list[str]:
+    """Extract candidate email addresses from mailto: links and visible page text."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add_email(raw: str) -> None:
+        if not raw:
+            return
+        cleaned = raw.strip().lower().strip(".,;:()<>[]'\"")
+        if not cleaned or "@" not in cleaned:
+            return
+        if any(cleaned.endswith(ext) for ext in _IGNORED_EMAIL_EXTENSIONS):
+            return
+        domain = cleaned.split("@")[-1]
+        if any(domain == ign or domain.endswith("." + ign) for ign in _IGNORED_EMAIL_DOMAINS):
+            return
+        if 5 <= len(cleaned) <= 100 and cleaned not in seen:
+            seen.add(cleaned)
+            found.append(cleaned)
+
+    # 1. Search mailto links
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href", "")
+        if isinstance(href, list):
+            href = href[0]
+        if href.lower().startswith("mailto:"):
+            target = href.split(":", 1)[1].split("?")[0].strip()
+            add_email(target)
+
+    # 2. Search text
+    for match in _EMAIL_PATTERN.findall(text):
+        add_email(match)
+
+    return found
+
+
 def _build_summary(result: CrawlResult) -> str:
     """Generate a concise one-line website summary."""
     parts: list[str] = []
@@ -508,6 +556,9 @@ async def crawl_website(url: str) -> dict[str, Any]:
         result.has_contact_form = _detect_contact_form(soup)
         result.pricing_found = _detect_pricing(soup, page_text)
         result.social_links.update(_extract_social_links(soup))
+        landing_emails = _detect_emails(soup, page_text)
+        if landing_emails:
+            result.website_email = landing_emails[0]
 
         # ------ Discover & fetch internal pages -------------------------
         internal_urls = _discover_nav_links(soup, url)
@@ -542,6 +593,11 @@ async def crawl_website(url: str) -> dict[str, Any]:
                 result.has_contact_form = _detect_contact_form(page_soup)
             if not result.pricing_found:
                 result.pricing_found = _detect_pricing(page_soup, page_text)
+
+            if not result.website_email:
+                internal_emails = _detect_emails(page_soup, page_text)
+                if internal_emails:
+                    result.website_email = internal_emails[0]
 
             # Merge socials (first-seen wins per platform).
             for platform, link in _extract_social_links(page_soup).items():

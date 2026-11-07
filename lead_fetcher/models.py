@@ -4,7 +4,7 @@ import json
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
-
+from pgvector.sqlalchemy import Vector
 try:
     from database import Base, is_vector_available
 except ImportError:
@@ -65,6 +65,8 @@ class Lead(Base):
     business_website = Column(String(100), nullable=True)
     owner_name = Column(String(50), nullable=True)
     email = Column(String(255), unique=True, nullable=True)
+    website_email = Column(String(255), nullable=True)
+    business_profile = Column(Text, nullable=True)
     number = Column(String(20), nullable=True)
     characteristic = Column(String(50), nullable=True)
     location = Column(String(100), nullable=True)
@@ -103,7 +105,7 @@ class BusinessEmbedding(Base):
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     content_type = Column(String(50), nullable=False)     # "crawl", "services", "summary", etc.
     content_text = Column(Text, nullable=False)
-    embedding = Column(VectorType(2048), nullable=True)    # Native Vector or JSON-Text fallback
+    embedding = Column(Vector(2048), nullable=True)    # Native Vector or JSON-Text fallback
     created_at = Column(DateTime, server_default=func.now())
 
     lead = relationship("Lead", back_populates="embeddings")
