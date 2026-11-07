@@ -1,0 +1,4 @@
+name,url,city,business_type,phone,rating,userRatingCount,business_profile
+"Ocean Drive Dental Studio","https://oceandrivedental.com","Miami, FL","Dental clinic","(305) 555-0143",4.8,124,"https://maps.google.com/?cid=10101"
+"Biscayne Bay Physical Therapy","https://biscaynebaypt.com","Miami, FL","Physical therapy clinic","(305) 555-0188",4.9,86,"https://maps.google.com/?cid=10102"
+"Brickell Elite Fitness","https://brickellelitefitness.com","Miami, FL","Gym","(305) 555-0199",4.6,210,"https://maps.google.com/?cid=10103"

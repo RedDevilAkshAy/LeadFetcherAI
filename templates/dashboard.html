@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadFetcher · Saved Leads & Business Intelligence</title>
+<style>
+:root {
+  --ink: #19243e;
+  --muted: #73809a;
+  --primary: #6954e8;
+  --primary-hover: #5842dc;
+  --primary-light: #eee8ff;
+  --line: #e9edf5;
+  --card-bg: #ffffff;
+  --success: #10b981;
+  --success-bg: #ecfdf5;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+  --danger: #ef4444;
+  --danger-bg: #fef2f2;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 40px 20px 80px;
+  color: var(--ink);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: radial-gradient(ellipse at top left, #e4dcff, transparent 55%),
+              radial-gradient(ellipse at bottom right, #d0f6ed, transparent 55%),
+              #f5f7ff;
+}
+.dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.eyebrow {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 30px;
+  background: var(--primary-light);
+  color: #6950cc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+h1 {
+  font-size: clamp(30px, 4.5vw, 42px);
+  letter-spacing: -1.5px;
+  margin: 14px 0 8px;
+}
+header p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.card {
+  background: var(--card-bg);
+  border: 1px solid #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(55, 48, 107, 0.08);
+  overflow: hidden;
+}
+
+/* Toolbar */
+.toolbar {
+  padding: 20px 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.label, .count {
+  font-size: 13px;
+  color: var(--muted);
+}
+.label { font-weight: 600; }
+.buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 15px;
+  background: white;
+  border: 1px solid #dfe4ef;
+  border-radius: 10px;
+  color: #596681;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+button:hover:not(:disabled) {
+  background: #f2efff;
+  color: var(--primary);
+  border-color: #d1c7fe;
+}
+button[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 4px 14px rgba(105, 84, 232, 0.25);
+}
+button.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 4px 14px rgba(105, 84, 232, 0.25);
+}
+button.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: white;
+}
+button.btn-outline {
+  background: white;
+  border: 1px solid #dfe4ef;
+  color: #4b5563;
+}
+button.btn-outline:hover:not(:disabled) {
+  background: #f9fafb;
+  color: var(--ink);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button.btn-crm:not(:disabled) {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+button.btn-crm:not(:disabled):hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #14532d;
+  box-shadow: 0 4px 14px rgba(22, 101, 52, 0.15);
+}
+
+/* Stacked Filters Panel */
+.filters-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  padding: 9px 16px;
+}
+.filters-toggle-btn.active {
+  background: #f2efff;
+  border-color: #bcaefd;
+  color: var(--primary);
+}
+.filter-count-badge {
+  background: var(--primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 1px 7px;
+  line-height: 1.4;
+}
+.filters-panel {
+  background: #fcfcff;
+  border-bottom: 1px solid var(--line);
+  padding: 22px 26px;
+  animation: slideDown 0.2s ease-out;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  align-items: flex-end;
+}
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.filter-select {
+  width: 100%;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1f2937;
+  background: white;
+  border: 1px solid #dfe4ef;
+  border-radius: 10px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filter-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(105, 84, 232, 0.15);
+}
+.filters-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #edf0f7;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.active-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--primary-light);
+  color: #5842dc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid #d9d0ff;
+}
+.chip:hover {
+  background: #e4dcff;
+}
+.chip-close {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+.clear-all-link {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
+}
+.clear-all-link:hover {
+  color: var(--primary);
+}
+
+/* Table */
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th {
+  text-align: left;
+  background: #f8f9fd;
+  color: #8690a6;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 18px 24px;
+}
+td {
+  padding: 20px 24px;
+  border-top: 1px solid #edf0f6;
+  font-size: 14px;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+tbody tr {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+tbody tr:hover {
+  background: #f8f7ff;
+}
+.business-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.business-name {
+  font-weight: 700;
+  color: #202b42;
+  font-size: 15px;
+}
+.business-meta {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.badge.known {
+  color: #065f46;
+  background: #d1fae5;
+}
+.badge.unknown {
+  color: #92400e;
+  background: #fef3c7;
+}
+.badge.missing {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+.badge.website-email {
+  color: #4338ca;
+  background: #e0e7ff;
+}
+.badge.niche {
+  color: #5b21b6;
+  background: #ede9fe;
+}
+.badge.priority-high {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.badge.priority-medium {
+  color: #b45309;
+  background: #fef3c7;
+}
+.badge.priority-low {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.link-out {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.link-out:hover {
+  text-decoration: underline;
+}
+
+.view-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+/* Details Page View */
+.details-container {
+  padding: 30px;
+}
+.details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.back-btn {
+  margin-bottom: 16px;
+}
+.details-title h2 {
+  font-size: 28px;
+  margin: 0 0 8px;
+  letter-spacing: -0.8px;
+  color: var(--ink);
+}
+.details-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.action-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Grid Sections */
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.detail-card {
+  background: #fafbfe;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
+}
+.detail-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: #2d3748;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.info-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+.info-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.info-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.info-value {
+  font-size: 14px;
+  color: #1f2937;
+  font-weight: 500;
+  word-break: break-word;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Editable email field */
+.editable-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.edit-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+}
+.edit-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(105, 84, 232, 0.15);
+}
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+/* Signals list */
+.signals-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+.signal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: white;
+  border: 1px solid #edf0f7;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.signal-icon {
+  font-size: 16px;
+}
+.services-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.service-pill {
+  background: white;
+  border: 1px solid #e2e8f0;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #475569;
+}
+
+/* Pitch Box */
+.pitch-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pitch-box {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+}
+.pitch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pitch-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4b5563;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pitch-content {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1f2937;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #edf2f7;
+  margin: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Search Bar */
+.search-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbff;
+}
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+}
+.search-input-wrap .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+.search-input {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  font: inherit;
+  font-size: 13px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.2s;
+  outline: none;
+}
+.search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(105, 84, 232, 0.12);
+}
+.search-input::placeholder { color: #a0aec0; }
+.btn-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #9ca3af;
+  display: none;
+}
+.btn-search-clear:hover { color: var(--danger); }
+.sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.sort-wrap label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sort-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.sort-select:focus { border-color: var(--primary); }
+
+/* State & Pagination */
+.state {
+  text-align: center;
+  padding: 64px 22px;
+  color: var(--muted);
+}
+.state h2 {
+  color: var(--ink);
+  font-size: 20px;
+  margin: 0 0 10px;
+}
+.state p { margin: 0; line-height: 1.7; }
+.state button { margin-top: 20px; }
+.pagination {
+  padding: 20px 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+}
+footer {
+  text-align: center;
+  color: #8b94a9;
+  font-size: 13px;
+  margin-top: 28px;
+}
+[hidden] { display: none !important; }
+
+/* Alerts / Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  background: #1f2937;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  z-index: 1000;
+  transition: opacity 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.toast.toast-success { background: #065f46; }
+.toast.toast-error { background: #991b1b; }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media(max-width: 768px) {
+  body { padding: 24px 12px; }
+  .toolbar { padding: 18px; }
+  .filters-panel { padding: 18px; }
+  .filters-grid { grid-template-columns: 1fr; }
+  .details-container { padding: 18px; }
+  .details-grid { grid-template-columns: 1fr; }
+  .signals-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main class="dashboard">
+<header>
+  <span class="eyebrow">LEADFETCHER AI</span>
+  <h1>Lead Intelligence Dashboard</h1>
+  <p>Local business discovery, owner extraction, website crawling, and automated pipeline analysis.</p>
+</header>
+
+<!-- Main Card -->
+<section class="card" aria-label="Lead Management Card">
+
+  <!-- ==================== LIST VIEW ==================== -->
+  <div id="view-list">
+    <!-- Toolbar with stacked filter trigger -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button type="button" id="btn-toggle-filters" class="btn-outline filters-toggle-btn" aria-expanded="false">
+          <span style="font-size: 14px;">⚙️</span>
+          <span>Filters</span>
+          <span id="active-filter-badge" class="filter-count-badge" hidden>0</span>
+          <span id="filter-chevron" style="font-size: 10px; margin-left: 2px;">▼</span>
+        </button>
+
+        <!-- Active filter chips -->
+        <div id="active-chips" class="active-chips"></div>
+      </div>
+
+      <span class="count" id="count" role="status" aria-live="polite">Loading leads…</span>
+    </div>
+
+    <!-- Search Bar + Sort Row -->
+    <div class="search-bar-wrap">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input
+          type="search"
+          id="search-input"
+          class="search-input"
+          placeholder="Search business name, owner, location…"
+          autocomplete="off"
+          aria-label="Search businesses"
+        >
+        <button type="button" class="btn-search-clear" id="btn-search-clear" title="Clear search" aria-label="Clear search">✕</button>
+      </div>
+
+      <div class="sort-wrap">
+        <label for="sort-select">Sort by</label>
+        <select id="sort-select" class="sort-select" aria-label="Sort leads by">
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="priority_high">Priority: High → Low</option>
+          <option value="priority_low">Priority: Low → High</option>
+          <option value="score_high">Score: High → Low</option>
+          <option value="score_low">Score: Low → High</option>
+          <option value="name_az">Name A → Z</option>
+          <option value="name_za">Name Z → A</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Stacked Filters Panel (Expandable) -->
+    <div id="filters-panel" class="filters-panel" hidden>
+      <div class="filters-grid">
+        <!-- Filter 1: Owner Status -->
+        <div class="filter-field">
+          <label class="filter-label">Owner Status</label>
+          <div class="buttons" role="group" aria-label="Owner status filter">
+            <button type="button" data-owner="all" aria-pressed="true">All</button>
+            <button type="button" data-owner="known" aria-pressed="false">Known Owner</button>
+            <button type="button" data-owner="unknown" aria-pressed="false">Unknown Owner</button>
+          </div>
+        </div>
+
+        <!-- Filter 2: Location Dropdown -->
+        <div class="filter-field">
+          <label class="filter-label" for="filter-location">Location</label>
+          <select id="filter-location" class="filter-select">
+            <option value="all">All Locations</option>
+            {% if locations %}
+              {% for loc in locations %}
+                <option value="{{ loc }}">{{ loc }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <!-- Filter 3: Characteristic Dropdown -->
+        <div class="filter-field">
+          <label class="filter-label" for="filter-characteristic">Characteristic</label>
+          <select id="filter-characteristic" class="filter-select">
+            <option value="all">All Characteristics</option>
+            {% if business_types %}
+              {% for char in business_types %}
+                <option value="{{ char }}">{{ char }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+      </div>
+
+      <div class="filters-footer">
+        <span class="count" id="filter-summary-text">Select filters above to refine leads</span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-reset-filters" class="btn-outline btn-sm">Reset Filters</button>
+          <button type="button" id="btn-apply-filters" class="btn-primary btn-sm">Apply Filters</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leads Table -->
+    <div class="table-wrap" id="table-wrap" hidden>
+      <table aria-label="Saved leads">
+        <thead>
+          <tr>
+            <th scope="col" style="width: 32%;">Business</th>
+            <th scope="col" style="width: 18%;">Owner</th>
+            <th scope="col" style="width: 14%; text-align: center;">Priority</th>
+            <th scope="col" style="width: 20%;">Website / Contact</th>
+            <th scope="col" style="width: 16%; text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="leads-body"></tbody>
+      </table>
+    </div>
+
+    <div class="state" id="state" role="status" aria-live="polite">
+      <h2 id="state-title">Loading leads…</h2>
+      <p id="state-message">Fetching your saved businesses from the database.</p>
+      <button type="button" id="retry" hidden>Try again</button>
+    </div>
+
+    <div class="pagination" id="pagination-bar">
+      <button type="button" id="previous" disabled>← Previous</button>
+      <span class="count" id="page-label">Page 1</span>
+      <button type="button" id="next" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- ==================== DETAILS VIEW ==================== -->
+  <div id="view-details" hidden>
+    <div class="details-container">
+      <button type="button" class="btn-outline back-btn" id="btn-back">
+        ← Back to leads list
+      </button>
+
+      <div class="details-header">
+        <div class="details-title">
+          <h2 id="det-name">Business Name</h2>
+          <div class="details-tags">
+            <span class="badge niche" id="det-niche">Local Business</span>
+            <span class="badge" id="det-location">📍 Location</span>
+            <span class="badge" id="det-rating">★ 0.0 (0 reviews)</span>
+            <span class="badge" id="det-priority">Priority: —</span>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <button type="button" class="btn-outline btn-crm" id="btn-send-crm" disabled title="Direct or crawled email required to send to CRM">
+            <span id="crm-spinner" class="spinner" hidden></span>
+            <span id="crm-icon">💼</span>
+            <span id="crm-text">Send to Zoho CRM</span>
+          </button>
+          <button type="button" class="btn-primary" id="btn-analyze">
+            <span id="analyze-spinner" class="spinner" hidden></span>
+            <span id="analyze-icon">⚡</span>
+            <span id="analyze-text">Analyze Lead Pipeline</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Detail Grid -->
+      <div class="details-grid">
+
+        <!-- Card 1: Core Contacts -->
+        <div class="detail-card">
+          <h3>👤 Owner & Contact Info</h3>
+
+          <div class="info-row">
+            <span class="info-label">Business Owner</span>
+            <div class="info-value">
+              <span id="det-owner">Unknown</span>
+              <span class="badge" id="det-owner-badge">Unknown</span>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Direct Email (Editable)</span>
+            <div class="info-value">
+              <!-- View Mode -->
+              <div id="email-view-mode" class="editable-box">
+                <span id="det-email" style="font-weight: 600; color: #1e293b;">Not set</span>
+                <button type="button" class="btn-sm btn-outline" id="btn-edit-email">✏️ Edit</button>
+              </div>
+              <!-- Edit Mode -->
+              <div id="email-edit-mode" class="editable-box" hidden>
+                <input type="email" id="input-email" class="edit-input" placeholder="name@company.com">
+                <button type="button" class="btn-sm btn-primary" id="btn-save-email">Save</button>
+                <button type="button" class="btn-sm btn-outline" id="btn-cancel-email">Cancel</button>
+              </div>
+            </div>
+            <div id="email-error" style="color: var(--danger); font-size: 12px; margin-top: 4px;" hidden></div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Website Email (Crawled)</span>
+            <div class="info-value">
+              <span id="det-web-email" class="badge website-email">None found on website</span>
+              <button type="button" class="btn-sm btn-outline" id="btn-copy-web-email" title="Copy to direct email" hidden>
+                Copy to Direct
+              </button>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Phone Number</span>
+            <div class="info-value">
+              <span id="det-phone">Not available</span>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Profiles & Links</span>
+            <div class="info-value" id="det-links">
+              <!-- populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: AI Diagnosis & Score -->
+        <div class="detail-card">
+          <h3>🎯 AI Score & Diagnosis</h3>
+
+          <div class="info-row">
+            <span class="info-label">Opportunity Score</span>
+            <div class="info-value">
+              <span style="font-size: 22px; font-weight: 800; color: var(--primary);" id="det-score">—</span>
+              <span style="font-size: 13px; color: var(--muted);">/ 100</span>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Growth Opportunities Detected</span>
+            <div class="info-value" style="display: block;">
+              <ul id="det-opps" style="margin: 6px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6;">
+                <li>Run analysis pipeline to diagnose business gaps.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <span class="info-label">Recommended Action</span>
+            <div class="info-value" id="det-rec-action" style="font-size: 13px; line-height: 1.5;">
+              No recommendation yet.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Website Analysis & Signals -->
+      <div class="detail-card" style="margin-bottom: 24px;">
+        <h3>🌐 Website Intelligence</h3>
+
+        <div class="info-row">
+          <span class="info-label">Website Summary</span>
+          <div class="info-value" id="det-web-summary" style="font-size: 13px; line-height: 1.6;">
+            Website has not been crawled yet. Click 'Analyze Lead Pipeline' above.
+          </div>
+        </div>
+
+        <div class="info-row">
+          <span class="info-label">Signals Detected</span>
+          <div class="signals-grid">
+            <div class="signal-item" id="sig-booking">
+              <span class="signal-icon">📅</span>
+              <span>Online Booking: <strong id="sig-booking-val">—</strong></span>
+            </div>
+            <div class="signal-item" id="sig-whatsapp">
+              <span class="signal-icon">💬</span>
+              <span>WhatsApp: <strong id="sig-whatsapp-val">—</strong></span>
+            </div>
+            <div class="signal-item" id="sig-form">
+              <span class="signal-icon">📝</span>
+              <span>Contact Form: <strong id="sig-form-val">—</strong></span>
+            </div>
+            <div class="signal-item" id="sig-pricing">
+              <span class="signal-icon">💰</span>
+              <span>Pricing Listed: <strong id="sig-pricing-val">—</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="info-row">
+          <span class="info-label">Detected Services</span>
+          <div class="services-wrap" id="det-services">
+            <span style="font-size: 13px; color: var(--muted);">None detected yet.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pitches -->
+      <div class="detail-card">
+        <h3>✉️ Personalized Outreach Pitches</h3>
+        <div class="pitch-container">
+          <div class="pitch-box">
+            <div class="pitch-header">
+              <span class="pitch-title">📱 WhatsApp Pitch</span>
+              <button type="button" class="btn-sm btn-outline" id="btn-copy-wa">📋 Copy</button>
+            </div>
+            <pre class="pitch-content" id="pitch-whatsapp">No pitch generated yet.</pre>
+          </div>
+
+          <div class="pitch-box">
+            <div class="pitch-header">
+              <span class="pitch-title">📧 Email Pitch</span>
+              <button type="button" class="btn-sm btn-outline" id="btn-copy-email">📋 Copy</button>
+            </div>
+            <pre class="pitch-content" id="pitch-email">No pitch generated yet.</pre>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+
+<footer>LeadFetcher AI · Automated Business Intelligence & Outreach Engine</footer>
+</main>
+
+<!-- Toast notification -->
+<div id="toast" class="toast" hidden></div>
+
+<script>
+// Filter State
+let activeOwner = 'all';
+let activeLocation = 'all';
+let activeCharacteristic = 'all';
+let activeSearch = '';
+let activeSortBy = 'newest';
+let searchDebounceTimer = null;
+let isFiltersOpen = false;
+let offset = 0;
+const PAGE_SIZE = 20;
+
+let currentLeadId = null;
+let currentLeadData = null;
+let controller = null;
+
+// Missing value helper
+const missingSet = new Set(['', 'unknown', 'not found', 'n/a', 'na', 'none', 'null', '-', 'unknown owner']);
+const isMissing = val => missingSet.has(String(val ?? '').trim().toLowerCase());
+
+// DOM elements
+const viewList = document.getElementById('view-list');
+const viewDetails = document.getElementById('view-details');
+const tbody = document.getElementById('leads-body');
+const tableWrap = document.getElementById('table-wrap');
+const count = document.getElementById('count');
+const state = document.getElementById('state');
+const stateTitle = document.getElementById('state-title');
+const stateMessage = document.getElementById('state-message');
+const retry = document.getElementById('retry');
+const previous = document.getElementById('previous');
+const next = document.getElementById('next');
+const pageLabel = document.getElementById('page-label');
+
+// Filter DOM elements
+const btnToggleFilters = document.getElementById('btn-toggle-filters');
+const filtersPanel = document.getElementById('filters-panel');
+const filterBadge = document.getElementById('active-filter-badge');
+const filterChevron = document.getElementById('filter-chevron');
+const activeChips = document.getElementById('active-chips');
+const ownerButtons = [...document.querySelectorAll('[data-owner]')];
+const selectLocation = document.getElementById('filter-location');
+const selectCharacteristic = document.getElementById('filter-characteristic');
+const btnResetFilters = document.getElementById('btn-reset-filters');
+const btnApplyFilters = document.getElementById('btn-apply-filters');
+const filterSummaryText = document.getElementById('filter-summary-text');
+
+// Search & Sort DOM elements
+const searchInput = document.getElementById('search-input');
+const btnSearchClear = document.getElementById('btn-search-clear');
+const sortSelect = document.getElementById('sort-select');
+
+// Details DOM elements
+const btnBack = document.getElementById('btn-back');
+const btnAnalyze = document.getElementById('btn-analyze');
+const analyzeSpinner = document.getElementById('analyze-spinner');
+const analyzeIcon = document.getElementById('analyze-icon');
+const analyzeText = document.getElementById('analyze-text');
+const btnSendCrm = document.getElementById('btn-send-crm');
+const crmSpinner = document.getElementById('crm-spinner');
+const crmIcon = document.getElementById('crm-icon');
+const crmText = document.getElementById('crm-text');
+const btnEditEmail = document.getElementById('btn-edit-email');
+const btnSaveEmail = document.getElementById('btn-save-email');
+const btnCancelEmail = document.getElementById('btn-cancel-email');
+const inputEmail = document.getElementById('input-email');
+const emailViewMode = document.getElementById('email-view-mode');
+const emailEditMode = document.getElementById('email-edit-mode');
+const emailError = document.getElementById('email-error');
+const btnCopyWebEmail = document.getElementById('btn-copy-web-email');
+const btnCopyWa = document.getElementById('btn-copy-wa');
+const btnCopyEmail = document.getElementById('btn-copy-email');
+
+// Toast helper
+function showToast(message, type = 'success') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = `toast toast-${type}`;
+  toast.hidden = false;
+  setTimeout(() => { toast.hidden = true; }, 3500);
+}
+
+// Router: switch between list and details views
+function showListView() {
+  currentLeadId = null;
+  currentLeadData = null;
+  viewDetails.hidden = true;
+  viewList.hidden = false;
+  if (window.location.hash) {
+    history.pushState(null, '', window.location.pathname);
+  }
+  loadLeads();
+}
+
+async function showDetailsView(leadId) {
+  currentLeadId = leadId;
+  viewList.hidden = true;
+  viewDetails.hidden = false;
+  window.location.hash = `lead/${leadId}`;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await loadLeadDetails(leadId);
+}
+
+// Check initial URL hash on page load
+function handleRoute() {
+  const hash = window.location.hash;
+  const match = hash.match(/^#lead\/(\d+)$/);
+  if (match) {
+    showDetailsView(parseInt(match[1], 10));
+  } else {
+    showListView();
+  }
+}
+window.addEventListener('popstate', handleRoute);
+
+// Toggle Filters Panel
+btnToggleFilters.addEventListener('click', () => {
+  isFiltersOpen = !isFiltersOpen;
+  filtersPanel.hidden = !isFiltersOpen;
+  btnToggleFilters.classList.toggle('active', isFiltersOpen);
+  btnToggleFilters.setAttribute('aria-expanded', String(isFiltersOpen));
+  filterChevron.textContent = isFiltersOpen ? '▲' : '▼';
+});
+
+// Update active filter badge and chips
+function updateFilterBadgesAndChips() {
+  let activeCount = 0;
+  const chips = [];
+
+  if (activeOwner !== 'all') {
+    activeCount++;
+    const label = activeOwner === 'known' ? 'Owner: Known' : 'Owner: Unknown';
+    chips.push({ key: 'owner', label });
+  }
+
+  if (activeLocation !== 'all' && activeLocation !== '') {
+    activeCount++;
+    chips.push({ key: 'location', label: `📍 ${activeLocation}` });
+  }
+
+  if (activeCharacteristic !== 'all' && activeCharacteristic !== '') {
+    activeCount++;
+    chips.push({ key: 'characteristic', label: `🏷️ ${activeCharacteristic}` });
+  }
+
+  // Update button badge
+  if (activeCount > 0) {
+    filterBadge.textContent = activeCount;
+    filterBadge.hidden = false;
+  } else {
+    filterBadge.hidden = true;
+  }
+
+  // Render chips
+  activeChips.innerHTML = '';
+  chips.forEach(chip => {
+    const chipEl = document.createElement('span');
+    chipEl.className = 'chip';
+    chipEl.innerHTML = `${escapeHtml(chip.label)} <span class="chip-close">×</span>`;
+    chipEl.onclick = () => {
+      if (chip.key === 'owner') {
+        activeOwner = 'all';
+        ownerButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.owner === 'all')));
+      } else if (chip.key === 'location') {
+        activeLocation = 'all';
+        selectLocation.value = 'all';
+      } else if (chip.key === 'characteristic') {
+        activeCharacteristic = 'all';
+        selectCharacteristic.value = 'all';
+      }
+      offset = 0;
+      updateFilterBadgesAndChips();
+      loadLeads();
+    };
+    activeChips.appendChild(chipEl);
+  });
+
+  if (activeCount > 1) {
+    const clearLink = document.createElement('span');
+    clearLink.className = 'clear-all-link';
+    clearLink.textContent = 'Clear all';
+    clearLink.onclick = resetAllFilters;
+    activeChips.appendChild(clearLink);
+  }
+
+  // Summary text in filter panel
+  if (activeCount > 0) {
+    filterSummaryText.textContent = `${activeCount} filter(s) active`;
+  } else {
+    filterSummaryText.textContent = 'No filters applied';
+  }
+}
+
+// Reset all filters
+function resetAllFilters() {
+  activeOwner = 'all';
+  activeLocation = 'all';
+  activeCharacteristic = 'all';
+  ownerButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.owner === 'all')));
+  selectLocation.value = 'all';
+  selectCharacteristic.value = 'all';
+  // Also clear search
+  activeSearch = '';
+  if (searchInput) { searchInput.value = ''; }
+  if (btnSearchClear) { btnSearchClear.style.display = 'none'; }
+  offset = 0;
+  updateFilterBadgesAndChips();
+  loadLeads();
+}
+btnResetFilters.addEventListener('click', resetAllFilters);
+
+// Search input — debounce 350ms
+searchInput.addEventListener('input', () => {
+  const val = searchInput.value.trim();
+  btnSearchClear.style.display = val ? 'block' : 'none';
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    activeSearch = val;
+    offset = 0;
+    loadLeads();
+  }, 350);
+});
+
+// Clear search button
+btnSearchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  btnSearchClear.style.display = 'none';
+  activeSearch = '';
+  offset = 0;
+  loadLeads();
+});
+
+// Sort select — immediate reload
+sortSelect.addEventListener('change', () => {
+  activeSortBy = sortSelect.value;
+  offset = 0;
+  loadLeads();
+});
+
+// Owner button selection
+ownerButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeOwner = btn.dataset.owner;
+    ownerButtons.forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    offset = 0;
+    updateFilterBadgesAndChips();
+    loadLeads();
+  });
+});
+
+// Dropdown changes (live update)
+selectLocation.addEventListener('change', () => {
+  activeLocation = selectLocation.value;
+  offset = 0;
+  updateFilterBadgesAndChips();
+  loadLeads();
+});
+
+selectCharacteristic.addEventListener('change', () => {
+  activeCharacteristic = selectCharacteristic.value;
+  offset = 0;
+  updateFilterBadgesAndChips();
+  loadLeads();
+});
+
+btnApplyFilters.addEventListener('click', () => {
+  offset = 0;
+  updateFilterBadgesAndChips();
+  loadLeads();
+  // Close panel on apply
+  isFiltersOpen = false;
+  filtersPanel.hidden = true;
+  btnToggleFilters.classList.remove('active');
+  filterChevron.textContent = '▼';
+});
+
+// Fetch distinct locations & characteristics from dashboard API
+async function fetchDropdownFilters() {
+  try {
+    const res = await fetch('/api/dashboard_filters');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Populate Location dropdown if empty or needed
+    if (Array.isArray(data.locations) && data.locations.length) {
+      const currentVal = selectLocation.value;
+      selectLocation.innerHTML = '<option value="all">All Locations</option>';
+      data.locations.forEach(loc => {
+        if (!loc) return;
+        const opt = document.createElement('option');
+        opt.value = loc;
+        opt.textContent = loc;
+        selectLocation.appendChild(opt);
+      });
+      selectLocation.value = currentVal || 'all';
+    }
+
+    // Populate Characteristic dropdown if empty or needed
+    const chars = data.characteristics || data.business_types || [];
+    if (Array.isArray(chars) && chars.length) {
+      const currentVal = selectCharacteristic.value;
+      selectCharacteristic.innerHTML = '<option value="all">All Characteristics</option>';
+      chars.forEach(char => {
+        if (!char) return;
+        const opt = document.createElement('option');
+        opt.value = char;
+        opt.textContent = char;
+        selectCharacteristic.appendChild(opt);
+      });
+      selectCharacteristic.value = currentVal || 'all';
+    }
+  } catch (e) {
+    console.debug('Dashboard filters fetch fallback:', e);
+  }
+}
+
+// Render Leads List Table
+function renderLeads(items) {
+  const fragment = document.createDocumentFragment();
+
+  for (const lead of items) {
+    const tr = document.createElement('tr');
+    tr.onclick = (e) => {
+      if (e.target.closest('a')) return;
+      showDetailsView(lead.id);
+    };
+
+    // 1. Business cell
+    const tdBiz = document.createElement('td');
+    const bizWrap = document.createElement('div');
+    bizWrap.className = 'business-cell';
+    const bizName = document.createElement('span');
+    bizName.className = 'business-name';
+    bizName.textContent = lead.business_name || 'Unnamed business';
+    bizWrap.appendChild(bizName);
+
+    const bizMeta = document.createElement('div');
+    bizMeta.className = 'business-meta';
+    if (lead.characteristic) {
+      bizMeta.innerHTML += `<span class="badge niche">${escapeHtml(lead.characteristic)}</span>`;
+    }
+    if (lead.location) {
+      bizMeta.innerHTML += `<span>📍 ${escapeHtml(lead.location)}</span>`;
+    }
+    if (lead.rating) {
+      bizMeta.innerHTML += `<span>★ ${lead.rating} (${lead.review_count || 0})</span>`;
+    }
+    bizWrap.appendChild(bizMeta);
+    tdBiz.appendChild(bizWrap);
+    tr.appendChild(tdBiz);
+
+    // 2. Owner cell
+    const tdOwner = document.createElement('td');
+    const ownerName = lead.owner_name;
+    if (isMissing(ownerName)) {
+      tdOwner.innerHTML = `<span class="badge unknown">Unknown Owner</span>`;
+    } else {
+      tdOwner.innerHTML = `<strong>${escapeHtml(ownerName)}</strong>`;
+    }
+    tr.appendChild(tdOwner);
+
+    // 3. Priority cell
+    const tdPriority = document.createElement('td');
+    tdPriority.style.textAlign = 'center';
+    const prio = lead.priority || null;
+    if (prio && !isMissing(prio)) {
+      const prioBadge = document.createElement('span');
+      prioBadge.className = `badge priority-${prio.toLowerCase()}`;
+      prioBadge.textContent = prio;
+      tdPriority.appendChild(prioBadge);
+    } else {
+      const unscored = document.createElement('span');
+      unscored.className = 'badge';
+      unscored.style.cssText = 'background:#f1f5f9;color:#94a3b8;';
+      unscored.textContent = '—';
+      tdPriority.appendChild(unscored);
+    }
+    tr.appendChild(tdPriority);
+
+    // 4. Website / Contact cell
+    const tdContact = document.createElement('td');
+    const contactWrap = document.createElement('div');
+    contactWrap.style.display = 'flex';
+    contactWrap.style.flexDirection = 'column';
+    contactWrap.style.gap = '4px';
+
+    if (!isMissing(lead.business_website)) {
+      let href = lead.business_website.trim();
+      if (!/^https?:\/\//i.test(href)) href = `https://${href}`;
+      contactWrap.innerHTML += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="link-out">🔗 Website</a>`;
+    }
+    if (!isMissing(lead.email)) {
+      contactWrap.innerHTML += `<span style="font-size: 12px; color: #334155;">✉️ ${escapeHtml(lead.email)}</span>`;
+    } else if (!isMissing(lead.website_email)) {
+      contactWrap.innerHTML += `<span class="badge website-email" style="font-size: 11px;">Crawled: ${escapeHtml(lead.website_email)}</span>`;
+    }
+    tdContact.appendChild(contactWrap);
+    tr.appendChild(tdContact);
+
+    // 4. Action cell
+    const tdAction = document.createElement('td');
+    tdAction.style.textAlign = 'right';
+    const viewBtn = document.createElement('button');
+    viewBtn.type = 'button';
+    viewBtn.className = 'btn-outline view-btn';
+    viewBtn.textContent = 'View Details →';
+    viewBtn.onclick = (e) => {
+      e.stopPropagation();
+      showDetailsView(lead.id);
+    };
+    tdAction.appendChild(viewBtn);
+    tr.appendChild(tdAction);
+
+    fragment.appendChild(tr);
+  }
+
+  tbody.replaceChildren(fragment);
+}
+
+// Fetch Leads List from API
+async function loadLeads() {
+  controller?.abort();
+  const request = new AbortController();
+  controller = request;
+
+  previous.disabled = true;
+  next.disabled = true;
+  count.textContent = 'Loading leads…';
+  pageLabel.textContent = `Page ${Math.floor(offset / PAGE_SIZE) + 1}`;
+  tbody.replaceChildren();
+
+  tableWrap.hidden = true;
+  state.hidden = false;
+  stateTitle.textContent = 'Loading leads…';
+  stateMessage.textContent = 'Fetching your saved businesses.';
+  retry.hidden = true;
+
+  const params = new URLSearchParams({
+    owner_status: activeOwner,
+    sort_by: activeSortBy,
+    limit: String(PAGE_SIZE),
+    offset: String(offset)
+  });
+
+  if (activeLocation && activeLocation !== 'all') {
+    params.set('location', activeLocation);
+  }
+  if (activeCharacteristic && activeCharacteristic !== 'all') {
+    params.set('characteristic', activeCharacteristic);
+  }
+  if (activeSearch) {
+    params.set('search', activeSearch);
+  }
+
+  try {
+    const res = await fetch(`/get_leads?${params}`, {
+      signal: request.signal,
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (controller !== request) return;
+
+    if (!data.items.length && offset > 0) {
+      offset = 0;
+      loadLeads();
+      return;
+    }
+
+    renderLeads(data.items);
+    const first = data.items.length ? offset + 1 : 0;
+    count.textContent = `Showing ${first}–${offset + data.items.length} of ${data.total} leads`;
+    previous.disabled = offset === 0;
+    next.disabled = offset + PAGE_SIZE >= data.total;
+
+    if (data.items.length) {
+      tableWrap.hidden = false;
+      state.hidden = true;
+    } else {
+      tableWrap.hidden = true;
+      state.hidden = false;
+      stateTitle.textContent = 'No leads found';
+      stateMessage.textContent = 'No businesses match the active filter criteria. Try clearing or relaxing filters.';
+    }
+  } catch (err) {
+    if (err.name === 'AbortError' || controller !== request) return;
+    count.textContent = 'Unable to load leads';
+    tableWrap.hidden = true;
+    state.hidden = false;
+    stateTitle.textContent = 'Could not load leads';
+    stateMessage.textContent = 'Check backend server and database connection, then retry.';
+    retry.hidden = false;
+  }
+}
+
+// Load Full Lead Details
+async function loadLeadDetails(leadId) {
+  try {
+    const res = await fetch(`/leads/${leadId}`, {
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    if (!res.ok) throw new Error(`Lead details failed with HTTP ${res.status}`);
+    const lead = await res.json();
+    currentLeadData = lead;
+    renderDetails(lead);
+  } catch (err) {
+    console.error('Error fetching lead details:', err);
+    showToast('Failed to load lead details', 'error');
+  }
+}
+
+// Render Details Data into DOM
+function renderDetails(lead) {
+  // Title & Header Badges
+  document.getElementById('det-name').textContent = lead.business_name || 'Unnamed Business';
+  document.getElementById('det-niche').textContent = lead.characteristic || 'Local Business';
+  document.getElementById('det-location').textContent = lead.location ? `📍 ${lead.location}` : '📍 Location not specified';
+  document.getElementById('det-rating').textContent = lead.rating ? `★ ${lead.rating} (${lead.review_count || 0} reviews)` : '★ No reviews yet';
+
+  // Priority Badge
+  const priority = lead.score?.priority || 'Unknown';
+  const detPrio = document.getElementById('det-priority');
+  detPrio.textContent = `Priority: ${priority}`;
+  detPrio.className = `badge priority-${priority.toLowerCase()}`;
+
+  // Owner
+  const owner = lead.owner_name;
+  document.getElementById('det-owner').textContent = isMissing(owner) ? 'Unknown' : owner;
+  const ownerBadge = document.getElementById('det-owner-badge');
+  if (isMissing(owner)) {
+    ownerBadge.textContent = 'Missing Owner';
+    ownerBadge.className = 'badge unknown';
+  } else {
+    ownerBadge.textContent = 'Verified Owner';
+    ownerBadge.className = 'badge known';
+  }
+
+  // Direct Email
+  document.getElementById('det-email').textContent = lead.email || 'Not set';
+  inputEmail.value = lead.email || '';
+  emailViewMode.hidden = false;
+  emailEditMode.hidden = true;
+  emailError.hidden = true;
+
+  // Website Email
+  const webEmail = lead.website_email;
+  const webEmailEl = document.getElementById('det-web-email');
+  if (!isMissing(webEmail)) {
+    webEmailEl.textContent = webEmail;
+    webEmailEl.className = 'badge website-email';
+    btnCopyWebEmail.hidden = false;
+  } else {
+    webEmailEl.textContent = 'None found on website';
+    webEmailEl.className = 'badge missing';
+    btnCopyWebEmail.hidden = true;
+  }
+
+  // Phone
+  const phone = lead.number;
+  const phoneEl = document.getElementById('det-phone');
+  if (!isMissing(phone)) {
+    phoneEl.innerHTML = `<a href="tel:${escapeHtml(phone)}" class="link-out">📞 ${escapeHtml(phone)}</a>`;
+  } else {
+    phoneEl.textContent = 'Not available';
+  }
+
+  // Links (Website & Places Profile)
+  const linksEl = document.getElementById('det-links');
+  linksEl.innerHTML = '';
+  if (!isMissing(lead.business_website)) {
+    let href = lead.business_website.trim();
+    if (!/^https?:\/\//i.test(href)) href = `https://${href}`;
+    linksEl.innerHTML += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="link-out">🌐 Visit Website</a>`;
+  }
+  if (!isMissing(lead.business_profile)) {
+    linksEl.innerHTML += `<a href="${escapeHtml(lead.business_profile)}" target="_blank" rel="noopener noreferrer" class="link-out" style="color: #059669;">📍 Places Profile</a>`;
+  }
+  if (!linksEl.innerHTML) {
+    linksEl.textContent = 'No external links available';
+  }
+
+  // Score & Opportunities
+  const score = lead.score?.score;
+  document.getElementById('det-score').textContent = score !== null && score !== undefined ? score.toFixed(0) : '—';
+
+  const oppsList = document.getElementById('det-opps');
+  oppsList.innerHTML = '';
+  const opps = lead.score?.opportunities || [];
+  if (opps.length) {
+    opps.forEach(o => {
+      const li = document.createElement('li');
+      li.textContent = o;
+      oppsList.appendChild(li);
+    });
+  } else {
+    oppsList.innerHTML = '<li>Run pipeline analysis to detect growth opportunities.</li>';
+  }
+
+  document.getElementById('det-rec-action').textContent = lead.score?.recommended_actions || 'No recommendation generated yet.';
+
+  // Website Analysis & Signals
+  const analysis = lead.analysis;
+  document.getElementById('det-web-summary').textContent = analysis?.website_summary || 'Website has not been crawled yet. Click "Analyze Lead Pipeline" to run the intelligence engine.';
+
+  document.getElementById('sig-booking-val').textContent = analysis ? (analysis.has_online_booking ? 'Yes ✓' : 'No ✗') : '—';
+  document.getElementById('sig-whatsapp-val').textContent = analysis ? (analysis.has_whatsapp ? 'Yes ✓' : 'No ✗') : '—';
+  document.getElementById('sig-form-val').textContent = analysis ? (analysis.has_contact_form ? 'Yes ✓' : 'No ✗') : '—';
+  document.getElementById('sig-pricing-val').textContent = analysis ? (analysis.pricing_found ? 'Yes ✓' : 'No ✗') : '—';
+
+  // Services
+  const servicesWrap = document.getElementById('det-services');
+  servicesWrap.innerHTML = '';
+  const services = analysis?.services_found || [];
+  if (services.length) {
+    services.forEach(svc => {
+      const span = document.createElement('span');
+      span.className = 'service-pill';
+      span.textContent = svc;
+      servicesWrap.appendChild(span);
+    });
+  } else {
+    servicesWrap.innerHTML = '<span style="font-size: 13px; color: var(--muted);">No services listed.</span>';
+  }
+
+  // Pitches
+  document.getElementById('pitch-whatsapp').textContent = lead.pitch?.whatsapp || 'No WhatsApp pitch generated yet.';
+  document.getElementById('pitch-email').textContent = lead.pitch?.email || 'No Email pitch generated yet.';
+
+  // Enable/disable Zoho CRM button based on email presence
+  updateCrmButtonState();
+}
+
+function updateCrmButtonState() {
+  const directEmail = (currentLeadData?.email || '').trim();
+  const webEmail = (currentLeadData?.website_email || '').trim();
+  const hasEmail = Boolean(directEmail || webEmail);
+
+  btnSendCrm.disabled = !hasEmail;
+  if (hasEmail) {
+    const activeEmail = directEmail || webEmail;
+    btnSendCrm.title = `Send to Zoho CRM Leads (using ${activeEmail})`;
+  } else {
+    btnSendCrm.title = 'Direct email or crawled website email required to send to CRM';
+  }
+}
+
+// Edit Email Handler
+btnEditEmail.addEventListener('click', () => {
+  emailViewMode.hidden = true;
+  emailEditMode.hidden = false;
+  inputEmail.focus();
+});
+
+btnCancelEmail.addEventListener('click', () => {
+  emailEditMode.hidden = true;
+  emailViewMode.hidden = false;
+  emailError.hidden = true;
+  inputEmail.value = currentLeadData?.email || '';
+});
+
+// Save Email via Separate API: PUT /leads/{lead_id}/email
+btnSaveEmail.addEventListener('click', async () => {
+  const newEmail = inputEmail.value.trim();
+  emailError.hidden = true;
+
+  try {
+    const res = await fetch(`/leads/${currentLeadId}/email`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ email: newEmail || null })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || `Server returned ${res.status}`);
+    }
+
+    const data = await res.json();
+    currentLeadData.email = data.email;
+    document.getElementById('det-email').textContent = data.email || 'Not set';
+    emailEditMode.hidden = true;
+    emailViewMode.hidden = false;
+    updateCrmButtonState();
+    showToast('Direct email updated successfully!');
+  } catch (err) {
+    emailError.textContent = err.message || 'Failed to update email.';
+    emailError.hidden = false;
+  }
+});
+
+// Copy Website Email to Direct Email Input
+btnCopyWebEmail.addEventListener('click', () => {
+  if (currentLeadData?.website_email) {
+    inputEmail.value = currentLeadData.website_email;
+    btnEditEmail.click();
+  }
+});
+
+// Send to Zoho CRM: POST /leads/{lead_id}/send_to_crm
+btnSendCrm.addEventListener('click', async () => {
+  if (!currentLeadId || btnSendCrm.disabled) return;
+
+  btnSendCrm.disabled = true;
+  crmSpinner.hidden = false;
+  crmIcon.hidden = true;
+  crmText.textContent = 'Sending to Zoho…';
+
+  try {
+    const res = await fetch(`/leads/${currentLeadId}/send_to_crm`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data.detail || `CRM request failed with HTTP ${res.status}`);
+    }
+
+    showToast(data.message || 'Successfully sent to Zoho CRM Leads!', 'success');
+  } catch (err) {
+    console.error('Zoho CRM error:', err);
+    showToast(`Zoho CRM: ${err.message}`, 'error');
+  } finally {
+    crmSpinner.hidden = true;
+    crmIcon.hidden = false;
+    crmText.textContent = 'Send to Zoho CRM';
+    updateCrmButtonState();
+  }
+});
+
+// Run Pipeline: POST /leads/{lead_id}/analyze
+btnAnalyze.addEventListener('click', async () => {
+  if (!currentLeadId) return;
+
+  btnAnalyze.disabled = true;
+  analyzeSpinner.hidden = false;
+  analyzeIcon.hidden = true;
+  analyzeText.textContent = 'Crawling & Analyzing (15-25s)…';
+
+  try {
+    const res = await fetch(`/leads/${currentLeadId}/analyze`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Analysis failed with HTTP ${res.status}`);
+    }
+
+    const updatedLead = await res.json();
+    currentLeadData = updatedLead;
+    renderDetails(updatedLead);
+    showToast('Pipeline analysis complete! New signals & pitches ready.');
+  } catch (err) {
+    console.error('Analysis error:', err);
+    showToast(`Analysis failed: ${err.message}`, 'error');
+  } finally {
+    btnAnalyze.disabled = false;
+    analyzeSpinner.hidden = true;
+    analyzeIcon.hidden = false;
+    analyzeText.textContent = 'Analyze Lead Pipeline';
+  }
+});
+
+// Copy Pitch buttons
+btnCopyWa.addEventListener('click', () => {
+  const text = document.getElementById('pitch-whatsapp').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('WhatsApp pitch copied to clipboard!'));
+});
+btnCopyEmail.addEventListener('click', () => {
+  const text = document.getElementById('pitch-email').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Email pitch copied to clipboard!'));
+});
+
+// Back Button
+btnBack.addEventListener('click', showListView);
+
+// Pagination buttons
+previous.addEventListener('click', () => {
+  offset = Math.max(0, offset - PAGE_SIZE);
+  loadLeads();
+});
+
+next.addEventListener('click', () => {
+  offset += PAGE_SIZE;
+  loadLeads();
+});
+
+retry.addEventListener('click', loadLeads);
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Start
+fetchDropdownFilters();
+handleRoute();
+</script>
+</body>
+</html>

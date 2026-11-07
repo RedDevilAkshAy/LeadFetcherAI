@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any
 from urllib.parse import urljoin, urlparse
+import unicodedata
+
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -122,6 +124,7 @@ class CrawlResult:
     social_links: dict[str, str] = field(default_factory=dict)
     crawl_text: str = ""
     website_summary: str = ""
+    website_email: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary."""
@@ -202,60 +205,113 @@ def _discover_nav_links(soup: BeautifulSoup, base_url: str) -> list[str]:
 
 
 def _detect_services(soup: BeautifulSoup, text: str) -> list[str]:
-    """Heuristically extract a list of service/offering names.
+    """Extract candidate offerings from explicitly service-related sections.
 
-    Strategy:
-    1. Look for lists (<ul>/<ol>) inside sections whose heading contains
-       keywords like "services", "treatments", "what we offer", etc.
-    2. Collect items from those lists.
-    3. Fall back to heading tags (h2/h3) that look service-like.
+    `text` is retained for compatibility with existing callers.
+    No whole-page heading fallback is used.
     """
     services: list[str] = []
     seen: set[str] = set()
 
-    service_heading_re = re.compile(
-        r"service|treatment|what we (?:do|offer)|our (?:services|offerings|specialties|programs|classes|menu)"
-        r"|we (?:offer|provide|specialize)",
+    heading_re = re.compile(r"^h[1-6]$")
+
+    section_title_re = re.compile(
+        r"^(?:(?:our|the)\s+)?"
+        r"(?:services|treatments|offerings|specialties|"
+        r"programs|classes|packages)"
+        r"(?:\s+(?:we\s+(?:offer|provide)|offered))?$"
+        r"|^what\s+we\s+(?:do|offer)$"
+        r"|^we\s+(?:offer|provide)$",
         re.IGNORECASE,
     )
 
-    # --- Strategy 1: lists under service-related headings ---------------
-    for heading in soup.find_all(re.compile(r"^h[1-4]$")):
-        heading_text = heading.get_text(strip=True)
-        if not service_heading_re.search(heading_text):
+    noise_re = re.compile(
+        r"\b(?:"
+        r"who we are|about us|our history|our mission|our story|"
+        r"meet (?:our|the)|founder|testimonials?|"
+        r"what our customers|contact|call us|email|"
+        r"address|opening hours|business hours|"
+        r"follow us|privacy|copyright|terms"
+        r")\b",
+        re.IGNORECASE,
+    )
+
+    generic_labels = {
+        "home", "about", "blog", "faq", "portfolio", "gallery",
+        "learn more", "read more", "view more", "view all",
+        "book now", "get in touch", "submit", "menu",
+        "next", "previous",
+    }
+
+    def clean(value: str) -> str:
+        value = unicodedata.normalize("NFKC", value)
+        value = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", value)
+        value = re.sub(r"\s+", " ", value)
+        return value.strip(" \t\r\n-–—:|•")
+
+    def excluded_region(tag: Tag) -> bool:
+        return any(
+            node.name in {"nav", "header", "footer", "aside"}
+            or node.get("role") == "navigation"
+            for node in (tag, *tag.parents)
+            if isinstance(node, Tag)
+        )
+
+    def add_candidate(tag: Tag) -> None:
+        if excluded_region(tag):
+            return
+
+        value = clean(tag.get_text(" ", strip=True))
+        key = value.casefold()
+
+        if not 4 <= len(value) <= 100:
+            return
+        if len(value.split()) > 12:
+            return
+        if key in seen or key in generic_labels:
+            return
+        if section_title_re.fullmatch(value) or noise_re.search(value):
+            return
+        if "@" in value or re.search(r"https?://|www\.", value, re.I):
+            return
+        if not any(char.isalpha() for char in value):
+            return
+        if sum(char.isdigit() for char in value) >= 7:
+            return
+
+        seen.add(key)
+        services.append(value)
+
+    for heading in soup.find_all(heading_re):
+        if excluded_region(heading):
             continue
-        # Walk siblings until next heading to find <ul>/<ol>.
-        sibling: Tag | None = heading.find_next_sibling()
-        while sibling and sibling.name not in {"h1", "h2", "h3", "h4"}:
-            if sibling.name in ("ul", "ol"):
-                for li in sibling.find_all("li"):
-                    item = li.get_text(strip=True)
-                    if 3 < len(item) < 120 and item.lower() not in seen:
-                        seen.add(item.lower())
-                        services.append(item)
-            sibling = sibling.find_next_sibling()  # type: ignore[assignment]
 
-    # --- Strategy 2: headings themselves --------------------------------
-    if not services:
-        for heading in soup.find_all(re.compile(r"^h[2-4]$")):
-            h_text = heading.get_text(strip=True)
-            if 3 < len(h_text) < 80:
-                lower = h_text.lower()
-                # Skip generic headings.
-                if lower in seen or any(
-                    skip in lower
-                    for skip in (
-                        "about", "contact", "home", "welcome", "blog",
-                        "testimonial", "review", "faq", "location", "hour",
-                        "follow", "connect", "copyright", "privacy", "terms",
-                    )
-                ):
-                    continue
-                seen.add(lower)
-                services.append(h_text)
+        title = clean(heading.get_text(" ", strip=True))
+        if not section_title_re.fullmatch(title):
+            continue
 
-    # Cap the list to avoid noise.
-    return services[:25]
+        section_rank = int(heading.name[1])
+
+        # Traverse in document order, including nested wrappers.
+        # Stop at the next heading of equal or higher rank.
+        for node in heading.next_elements:
+            if not isinstance(node, Tag):
+                continue
+
+            if heading_re.fullmatch(node.name):
+                if int(node.name[1]) <= section_rank:
+                    break
+                add_candidate(node)
+
+            elif node.name == "li":
+                # Avoid treating a whole nested list as one offering.
+                if node.find(["ul", "ol"]) is None:
+                    add_candidate(node)
+
+            if len(services) >= 25:
+                return services
+
+    return services
 
 
 def _detect_online_booking(soup: BeautifulSoup, text: str) -> bool:
@@ -340,6 +396,53 @@ def _extract_social_links(soup: BeautifulSoup) -> dict[str, str]:
                 socials[platform] = href
                 break
     return socials
+
+
+_EMAIL_PATTERN: re.Pattern[str] = re.compile(
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+)
+_IGNORED_EMAIL_EXTENSIONS = (
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js", ".woff", ".woff2", ".ttf"
+)
+_IGNORED_EMAIL_DOMAINS = (
+    "example.com", "domain.com", "email.com", "yourdomain.com", "sentry.io", "wixpress.com", "schema.org"
+)
+
+
+def _detect_emails(soup: BeautifulSoup, text: str) -> list[str]:
+    """Extract candidate email addresses from mailto: links and visible page text."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add_email(raw: str) -> None:
+        if not raw:
+            return
+        cleaned = raw.strip().lower().strip(".,;:()<>[]'\"")
+        if not cleaned or "@" not in cleaned:
+            return
+        if any(cleaned.endswith(ext) for ext in _IGNORED_EMAIL_EXTENSIONS):
+            return
+        domain = cleaned.split("@")[-1]
+        if any(domain == ign or domain.endswith("." + ign) for ign in _IGNORED_EMAIL_DOMAINS):
+            return
+        if 5 <= len(cleaned) <= 100 and cleaned not in seen:
+            seen.add(cleaned)
+            found.append(cleaned)
+
+    # 1. Search mailto links
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href", "")
+        if isinstance(href, list):
+            href = href[0]
+        if href.lower().startswith("mailto:"):
+            target = href.split(":", 1)[1].split("?")[0].strip()
+            add_email(target)
+
+    # 2. Search text
+    for match in _EMAIL_PATTERN.findall(text):
+        add_email(match)
+
+    return found
 
 
 def _build_summary(result: CrawlResult) -> str:
@@ -453,6 +556,9 @@ async def crawl_website(url: str) -> dict[str, Any]:
         result.has_contact_form = _detect_contact_form(soup)
         result.pricing_found = _detect_pricing(soup, page_text)
         result.social_links.update(_extract_social_links(soup))
+        landing_emails = _detect_emails(soup, page_text)
+        if landing_emails:
+            result.website_email = landing_emails[0]
 
         # ------ Discover & fetch internal pages -------------------------
         internal_urls = _discover_nav_links(soup, url)
@@ -487,6 +593,11 @@ async def crawl_website(url: str) -> dict[str, Any]:
                 result.has_contact_form = _detect_contact_form(page_soup)
             if not result.pricing_found:
                 result.pricing_found = _detect_pricing(page_soup, page_text)
+
+            if not result.website_email:
+                internal_emails = _detect_emails(page_soup, page_text)
+                if internal_emails:
+                    result.website_email = internal_emails[0]
 
             # Merge socials (first-seen wins per platform).
             for platform, link in _extract_social_links(page_soup).items():

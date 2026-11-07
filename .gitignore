@@ -5,3 +5,4 @@ __pycache__/
 *.py[cod]
 leads.db
 .pytest_cache/
+backup.sql

@@ -14,8 +14,10 @@ from lead_fetcher.crawler import (
 from lead_fetcher.rag import chunk_text
 from lead_fetcher.scorer import score_lead
 from lead_fetcher.pitch import _get_salutation, _fallback_pitches
+from lead_fetcher.pipeline import process_lead_pipeline
 from server import format_lead_card
 from lead_fetcher.models import Lead, BusinessAnalysis, LeadScore
+from database import SessionLocal
 
 
 class TestPipelineComponents(unittest.TestCase):
@@ -135,6 +137,21 @@ class TestPipelineComponents(unittest.TestCase):
         self.assertIn("Priority: High", card)
         self.assertIn("Generated message:", card)
 
+class TestOneEntryPipeline(unittest.IsolatedAsyncioTestCase):
+    async def test_one_entry_with_pipeline(self):
+        db = SessionLocal()
+
+        first_lead_id = db.query(Lead).first()
+
+        try:
+            result = await process_lead_pipeline(
+                lead_id=first_lead_id.id,
+                db=db,
+            )
+
+            self.assertIsNotNone(result)
+        finally:
+            db.close()
 
 if __name__ == "__main__":
     unittest.main()

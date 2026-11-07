@@ -76,11 +76,13 @@ def init_db():
     import lead_fetcher.models  # ensure models are registered
     Base.metadata.create_all(bind=engine)
 
-    # Ensure rating and review_count exist on leads table if leads already existed
+    # Ensure rating, review_count, website_email, and business_profile exist on leads table if leads already existed
     try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS rating FLOAT;"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS review_count INTEGER;"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS website_email VARCHAR(255);"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS business_profile TEXT;"))
             conn.commit()
     except Exception as e:
         logger.warning(f"Note on altering leads columns: {e}")

@@ -7,52 +7,64 @@ import re
 from typing import Any, Dict, List, Optional, TypedDict
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, START, END
+from openai import OpenAI
 
 try:
-    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL
+    from lead_fetcher.config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
     from lead_fetcher.rag import retrieve_similar
 except ImportError:
-    from config import GEMINI_API_KEY, GEMINI_MODEL
+    from config import GEMINI_API_KEY, GEMINI_MODEL, NVIDIA_API_KEY, NVIDIA_EMBEDDING_MODEL, NVIDIA_MODEL, NVIDIA_BASE_URL
     from rag import retrieve_similar
 
 logger = logging.getLogger("lead_fetcher.agent")
 
-_agent_genai_client = None
-
+_agent_nim_client = None
 
 def get_agent_client():
-    global _agent_genai_client
-    if _agent_genai_client is None and GEMINI_API_KEY:
+    global _agent_nim_client
+
+    if _agent_nim_client is None and NVIDIA_API_KEY:
         try:
-            from google import genai
-            _agent_genai_client = genai.Client(api_key=GEMINI_API_KEY)
-        except Exception as e:
-            logger.warning(f"Failed to initialize Gemini client in agent: {e}")
-    return _agent_genai_client
+            _agent_nim_client = OpenAI(
+                base_url=NVIDIA_BASE_URL,
+                api_key=NVIDIA_API_KEY,
+            )
+        except Exception:
+            logger.exception("Failed to initialize NVIDIA NIM client")
+
+    return _agent_nim_client
 
 
-async def call_gemini(prompt: str) -> str:
-    """Helper to call Gemini LLM with prompt."""
+async def call_agent(prompt: str) -> str:
+    """Call an NVIDIA NIM chat model with the supplied prompt."""
     client = get_agent_client()
-    if not client:
+
+    if client is None:
+        logger.warning("NVIDIA NIM client is unavailable")
         return ""
 
-    model = GEMINI_MODEL or "gemini-2.5-flash"
+    if not NVIDIA_MODEL:
+        logger.warning("NVIDIA_MODEL is not configured")
+        return ""
+
     try:
-        if hasattr(client, "aio") and hasattr(client.aio, "models"):
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-            )
-        else:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model,
-                contents=prompt,
-            )
-        return response.text if response and response.text else ""
-    except Exception as e:
-        logger.warning(f"Gemini call failed in agent: {e}")
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model=NVIDIA_MODEL,
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=2048,
+        )
+
+        if not response.choices:
+            return ""
+
+        return response.choices[0].message.content or ""
+
+    except Exception:
+        logger.exception("NVIDIA NIM call failed in agent")
         return ""
 
 
@@ -104,7 +116,7 @@ Services Discovered ({len(services)}): {', '.join(services[:10]) if services els
 Write a concise 2-sentence diagnostic assessment of this business's website conversion capabilities.
 Focus on whether high-intent visitors can easily convert (e.g. book or WhatsApp) or if friction exists."""
 
-    assessment = await call_gemini(prompt)
+    assessment = await call_agent(prompt)
     if not assessment:
         missing = []
         if not has_booking:
@@ -138,7 +150,7 @@ Total Reviews: {reviews} reviews
 
 In 1-2 concise sentences, assess their Google visibility and trust signals. Is the review volume sufficient to win competitive local searches?"""
 
-    assessment = await call_gemini(prompt)
+    assessment = await call_agent(prompt)
     if not assessment:
         if reviews < 30:
             assessment = f"With only {reviews} reviews at {rating} stars, the business underutilizes social proof and risks losing local Google Map pack rankings to higher-reviewed competitors."
@@ -177,7 +189,7 @@ Market Context / Regional Competitor Patterns:
 Return ONLY a JSON array of strings (no other text). Example format:
 ["Low review volume (only {reviews} reviews)", "No direct WhatsApp booking button", "Missing service landing pages"]"""
 
-    response = await call_gemini(prompt)
+    response = await call_agent(prompt)
     gaps: List[str] = []
 
     try:
@@ -224,7 +236,7 @@ Respond with valid JSON with two keys:
 
 Return ONLY the JSON."""
 
-    response = await call_gemini(prompt)
+    response = await call_agent(prompt)
     opportunities: List[str] = []
     recommended_actions = ""
 
